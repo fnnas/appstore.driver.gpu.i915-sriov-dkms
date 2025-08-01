@@ -1,0 +1,170 @@
+name: Test Release
+run-name: ${{ github.actor }} build ${{ github.ref_name }} sha ${{ github.sha }}
+
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  workflow_dispatch:
+    inputs:
+      make_release:
+        description: 'Do you want to create a release?'
+        required: true
+        type: boolean
+        default: false
+
+env:
+  proj_name: "i915-sriov-dkms"
+  target_dkms_version: "2025.05.18"
+  target_commit_sha: "bf37d64"
+  this_pack_version: "1.0.4"
+jobs:
+  build_6-6-38-trim-92:
+    runs-on: ubuntu-latest
+    container:
+      image: makedie/fnos:kernHead-6.6.38-trim-92
+      options: -v ${{ github.workspace }}:${{ github.workspace }}
+    env:
+      kernel_name: "6.6.38-trim_92"
+      kernel_ver: "6.6.38-trim"
+    steps:
+      - name: Check out repository code
+        run: |
+          git clone https://github.com/GreenDamTan/i915-sriov-dkms.git
+          cd i915-sriov-dkms && git reset --hard e26ce8952e465762fc0743731aa377ec0b2889ff
+      - name: build ko
+        run: |
+          sed "s/.require_force_probe = 1,/.require_force_probe = 0,/g" -i i915-sriov-dkms/drivers/gpu/drm/i915/i915_pci.c
+          sed "s/max_vfs, 0/max_vfs, 7/g" -i i915-sriov-dkms/drivers/gpu/drm/i915/i915_params.h
+          dkms add ./i915-sriov-dkms
+          dkms install i915-sriov-dkms/2024.09.21 --verbose
+      - name: copy ko
+        run: |
+          mkdir -p upload/${{ env.proj_name }}_${{ env.kernel_name }}
+          cp -rf /lib/modules/${{ env.kernel_ver }}/updates/dkms/* upload/${{ env.proj_name }}_${{ env.kernel_name }}/
+      - name: upload ko
+        uses: actions/upload-artifact@master
+        with:
+          name: ${{ env.proj_name }}-${{ env.kernel_name }}
+          path: upload
+  build_6-12-5-trim-10:
+    runs-on: ubuntu-latest
+    container:
+      image: makedie/fnos:kernHead-6.12.5-trim-10
+      options: -v ${{ github.workspace }}:${{ github.workspace }}
+    env:
+      kernel_name: "6.12.5-trim_10"
+      kernel_ver: "6.12.5-trim"
+    steps:
+      - name: Check out repository code
+        run: |
+          git clone https://github.com/GreenDamTan/i915-sriov-dkms.git
+          cd i915-sriov-dkms && git reset --hard ${{ env.target_commit_sha }}
+      - name: build ko
+        run: |
+          dkms add ./i915-sriov-dkms
+          dkms install i915-sriov-dkms/${{ env.target_dkms_version }} --verbose
+      - name: copy ko
+        run: |
+          mkdir -p upload/${{ env.proj_name }}_${{ env.kernel_name }}
+          cp -rf /lib/modules/${{ env.kernel_ver }}/updates/dkms/* upload/${{ env.proj_name }}_${{ env.kernel_name }}/
+      - name: upload ko
+        uses: actions/upload-artifact@master
+        with:
+          name: ${{ env.proj_name }}-${{ env.kernel_name }}
+          path: upload
+  build_6-12-18-trim-3:
+    runs-on: ubuntu-latest
+    container:
+      image: makedie/fnos:kernHead-6.12.18-trim-3
+      options: -v ${{ github.workspace }}:${{ github.workspace }}
+    env:
+      kernel_name: "6.12.18-trim_3"
+      kernel_ver: "6.12.18-trim"
+    steps:
+      - name: Check out repository code
+        run: |
+          git clone https://github.com/GreenDamTan/i915-sriov-dkms.git
+          cd i915-sriov-dkms && git reset --hard ${{ env.target_commit_sha }}
+      - name: build ko
+        run: |
+          dkms add ./i915-sriov-dkms
+          dkms install i915-sriov-dkms/${{ env.target_dkms_version }} --verbose
+      - name: copy ko
+        run: |
+          mkdir -p upload/${{ env.proj_name }}_${{ env.kernel_name }}
+          cp -rf /lib/modules/${{ env.kernel_ver }}/updates/dkms/* upload/${{ env.proj_name }}_${{ env.kernel_name }}/
+      - name: upload ko
+        uses: actions/upload-artifact@master
+        with:
+          name: ${{ env.proj_name }}-${{ env.kernel_name }}
+          path: upload
+  pack_app_tgz:
+    needs:
+      - build_6-6-38-trim-92
+      - build_6-12-5-trim-10
+      - build_6-12-18-trim-3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - name: restore 6-6-38-trim-92
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.proj_name }}-6.6.38-trim_92
+          path: app/app/
+      - name: restore 6-12-5-trim-10
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.proj_name }}-6.12.5-trim_10
+          path: app/app/
+      - name: restore 6-12-18-trim-3
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.proj_name }}-6.12.18-trim_3
+          path: app/app/
+      - name: 打包app.tgz
+        run: |
+          cd app/
+          tar zcvf app.tgz app ui
+          mv app.tgz ../i915-sriov-dkms_driver/
+      - name: 打包package
+        run: |
+          tar zcvf appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}.tgz i915-sriov-dkms_driver
+      - name: 上传应用包
+        uses: actions/upload-artifact@master
+        with:
+          name: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}.tgz
+          path: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}.tgz
+      - name: Create GitHub Release
+        if: ${{ inputs.make_release }}
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.this_pack_version }}
+          prerelease: true
+          release_name: "fnnas.appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}"
+
+      - name: Upload Release Assets
+        if: ${{ inputs.make_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Uploading release assets..."
+          
+          echo "Uploading appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}.tgz"
+          gh release upload "${{ env.this_pack_version }}" "appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}.tgz" || echo "Failed to upload $file"
+          
+          echo "Upload completed!"
+
+      - name: Verify Uploaded Assets
+        if: ${{ inputs.make_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Uploaded assets:"
+          gh release view "${{ env.this_pack_version }}" --json assets -q '.assets[].name'
