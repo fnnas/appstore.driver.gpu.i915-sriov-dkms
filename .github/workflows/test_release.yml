@@ -1,5 +1,5 @@
 name: Test Release
-run-name: ${{ github.actor }} build ${{ github.ref_name }} sha ${{ github.sha }}
+run-name: ${{ github.actor }} build ${{ github.ref_name }} ${{ github.sha }}
 
 permissions:
   contents: write
@@ -22,86 +22,41 @@ env:
   target_commit_sha: "bf37d64"
   this_pack_version: "1.0.4"
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      proj_name: ${{ env.proj_name }}
+      target_commit_sha: ${{ env.target_commit_sha }}
+      target_dkms_version: ${{ env.target_dkms_version }}
+    steps:
+      - run: echo "All set!"
   build_6-6-38-trim-92:
-    runs-on: ubuntu-latest
-    container:
-      image: makedie/fnos:kernHead-6.6.38-trim-92
-      options: -v ${{ github.workspace }}:${{ github.workspace }}
-    env:
-      kernel_name: "6.6.38-trim_92"
-      kernel_ver: "6.6.38-trim"
-    steps:
-      - name: Check out repository code
-        run: |
-          git clone https://github.com/GreenDamTan/i915-sriov-dkms.git
-          cd i915-sriov-dkms && git reset --hard e26ce8952e465762fc0743731aa377ec0b2889ff
-      - name: build ko
-        run: |
-          sed "s/.require_force_probe = 1,/.require_force_probe = 0,/g" -i i915-sriov-dkms/drivers/gpu/drm/i915/i915_pci.c
-          sed "s/max_vfs, 0/max_vfs, 7/g" -i i915-sriov-dkms/drivers/gpu/drm/i915/i915_params.h
-          dkms add ./i915-sriov-dkms
-          dkms install i915-sriov-dkms/2024.09.21 --verbose
-      - name: copy ko
-        run: |
-          mkdir -p upload/${{ env.proj_name }}_${{ env.kernel_name }}
-          cp -rf /lib/modules/${{ env.kernel_ver }}/updates/dkms/* upload/${{ env.proj_name }}_${{ env.kernel_name }}/
-      - name: upload ko
-        uses: actions/upload-artifact@master
-        with:
-          name: ${{ env.proj_name }}-${{ env.kernel_name }}
-          path: upload
+    uses: ./.github/workflows/kernel-6.6.38-trim-92.yml
+    secrets: inherit
+    needs:
+      - setup
+    with:
+      proj_name: ${{ needs.setup.outputs.proj_name }}
+      target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
+      target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
   build_6-12-5-trim-10:
-    runs-on: ubuntu-latest
-    container:
-      image: makedie/fnos:kernHead-6.12.5-trim-10
-      options: -v ${{ github.workspace }}:${{ github.workspace }}
-    env:
-      kernel_name: "6.12.5-trim_10"
-      kernel_ver: "6.12.5-trim"
-    steps:
-      - name: Check out repository code
-        run: |
-          git clone https://github.com/GreenDamTan/i915-sriov-dkms.git
-          cd i915-sriov-dkms && git reset --hard ${{ env.target_commit_sha }}
-      - name: build ko
-        run: |
-          dkms add ./i915-sriov-dkms
-          dkms install i915-sriov-dkms/${{ env.target_dkms_version }} --verbose
-      - name: copy ko
-        run: |
-          mkdir -p upload/${{ env.proj_name }}_${{ env.kernel_name }}
-          cp -rf /lib/modules/${{ env.kernel_ver }}/updates/dkms/* upload/${{ env.proj_name }}_${{ env.kernel_name }}/
-      - name: upload ko
-        uses: actions/upload-artifact@master
-        with:
-          name: ${{ env.proj_name }}-${{ env.kernel_name }}
-          path: upload
+    uses: ./.github/workflows/kernel-6.12.5-trim-10.yml
+    secrets: inherit
+    needs:
+      - setup
+    with:
+      proj_name: ${{ needs.setup.outputs.proj_name }}
+      target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
+      target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
   build_6-12-18-trim-3:
-    runs-on: ubuntu-latest
-    container:
-      image: makedie/fnos:kernHead-6.12.18-trim-3
-      options: -v ${{ github.workspace }}:${{ github.workspace }}
-    env:
-      kernel_name: "6.12.18-trim_3"
-      kernel_ver: "6.12.18-trim"
-    steps:
-      - name: Check out repository code
-        run: |
-          git clone https://github.com/GreenDamTan/i915-sriov-dkms.git
-          cd i915-sriov-dkms && git reset --hard ${{ env.target_commit_sha }}
-      - name: build ko
-        run: |
-          dkms add ./i915-sriov-dkms
-          dkms install i915-sriov-dkms/${{ env.target_dkms_version }} --verbose
-      - name: copy ko
-        run: |
-          mkdir -p upload/${{ env.proj_name }}_${{ env.kernel_name }}
-          cp -rf /lib/modules/${{ env.kernel_ver }}/updates/dkms/* upload/${{ env.proj_name }}_${{ env.kernel_name }}/
-      - name: upload ko
-        uses: actions/upload-artifact@master
-        with:
-          name: ${{ env.proj_name }}-${{ env.kernel_name }}
-          path: upload
+    uses: ./.github/workflows/kernel-6.12.18-trim-3.yml
+    secrets: inherit
+    needs:
+      - setup
+    with:
+      proj_name: ${{ needs.setup.outputs.proj_name }}
+      target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
+      target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
   pack_app_tgz:
     needs:
       - build_6-6-38-trim-92
