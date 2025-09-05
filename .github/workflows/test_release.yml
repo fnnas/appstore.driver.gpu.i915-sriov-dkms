@@ -20,7 +20,8 @@ env:
   proj_name: "i915-sriov-dkms"
   target_dkms_version: "2025.05.18"
   target_commit_sha: "bf37d64"
-  this_pack_version: "1.0.4"
+  linux_firmware_commit_sha: "20cf22e5"
+  this_pack_version: "1.0.5"
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -28,8 +29,17 @@ jobs:
       proj_name: ${{ env.proj_name }}
       target_commit_sha: ${{ env.target_commit_sha }}
       target_dkms_version: ${{ env.target_dkms_version }}
+      linux_firmware_commit_sha: ${{ env.linux_firmware_commit_sha }}
     steps:
       - run: echo "All set!"
+  get_firmware:
+    uses: ./.github/workflows/get_firmware.yml
+    secrets: inherit
+    needs:
+      - setup
+    with:
+      proj_name: ${{ needs.setup.outputs.proj_name }}
+      linux_firmware_commit_sha: ${{ needs.setup.outputs.linux_firmware_commit_sha }}
   build_6-6-38-trim-92:
     uses: ./.github/workflows/kernel-6.6.38-trim-92.yml
     secrets: inherit
@@ -59,6 +69,7 @@ jobs:
       target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
   pack_app_tgz:
     needs:
+      - get_firmware
       - build_6-6-38-trim-92
       - build_6-12-5-trim-10
       - build_6-12-18-trim-3
@@ -66,6 +77,11 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
+      - name: restore firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.proj_name }}-${{ env.linux_firmware_commit_sha }}-firmware
+          path: app/app/firmware
       - name: restore 6-6-38-trim-92
         uses: actions/download-artifact@v4
         with:

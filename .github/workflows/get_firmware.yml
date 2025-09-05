@@ -1,0 +1,29 @@
+name: get_firmware.yml
+permissions:
+  contents: write  # Allow writing to repository contents (for pushing tags)
+  actions: write   # Allows triggering actions
+
+on:
+  workflow_call:  # This allows this workflow to be called from another workflow
+    inputs:
+      proj_name:
+        required: true
+        type: string
+        default: "i915-sriov-dkms"
+      linux_firmware_commit_sha:
+        required: true
+        type: string
+        default: "HEAD"
+jobs:
+  get_firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        run: |
+          git clone https://gitlab.com/kernel-firmware/linux-firmware
+          cd linux-firmware && git reset --hard ${{ inputs.linux_firmware_commit_sha }}
+      - name: upload firmware
+        uses: actions/upload-artifact@master
+        with:
+          name: ${{ inputs.proj_name }}-${{ inputs.linux_firmware_commit_sha }}-firmware
+          path: linux-firmware/i915

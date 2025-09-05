@@ -1,88 +1,88 @@
 #!/bin/bash
 print_pci() {
-    gpu_addrs=$(lspci -Dn | awk '$2 ~ /^03/ {print $1}')
+	gpu_addrs=$(lspci -Dn | awk '$2 ~ /^03/ {print $1}')
 	if [[ -z "$gpu_addrs" ]]; then
-        echo "not found gpu"
-    fi
-    for addr in $gpu_addrs; do
-      echo
-      echo "========== GPU @ $addr =========="
-      lspci -s "$addr" -vvnnk
-    done
+		echo "not found gpu"
+	fi
+	for addr in $gpu_addrs; do
+		echo
+		echo "========== GPU @ $addr =========="
+		lspci -s "$addr" -vvnnk
+	done
 }
 
-if [[ "$1" != "status" ]];then
-    echo -e "$(date +'%Y/%m/%d %H:%M:%S')\t" $0 $*
+if [[ "$1" != "status" ]]; then
+	echo -e "$(date +'%Y/%m/%d %H:%M:%S')\t" $0 $*
 fi
 
 PACKAGE_BASE=${TRIM_APPDEST}
 
 supportKernelList=("6.12.5-trim" "6.12.18-trim")
 
-nowKernelVer=`uname -r`
-nowKernelBuildNum=`uname -v| grep -oP '(?<=#)\d+'`
+nowKernelVer=$(uname -r)
+nowKernelBuildNum=$(uname -v | grep -oP '(?<=#)\d+')
 
 case $1 in
 start)
-    echo "`uname -a`"
-    echo "kernel_inf ${nowKernelVer} ${nowKernelBuildNum}"
+	echo "$(uname -a)"
+	echo "kernel_inf ${nowKernelVer} ${nowKernelBuildNum}"
 
-    if [[ " ${supportKernelList[@]} " =~ " ${nowKernelVer} " ]]; then
-        echo "${nowKernelVer} in supportKernelList"
-    else
-        echo "${nowKernelVer} not in supportKernelList"
+	if [[ " ${supportKernelList[@]} " =~ " ${nowKernelVer} " ]]; then
+		echo "${nowKernelVer} in supportKernelList"
+	else
+		echo "${nowKernelVer} not in supportKernelList"
 		exit 1
-    fi
-    
-    mkdir -p /lib/modules/${nowKernelVer}/updates/dkms/i915-sriov-dkms
-	
-    case "$nowKernelVer" in
-    	
-        6.12.5-trim)
-            if [[ ${nowKernelBuildNum} -le 9 ]]; then
-                echo "debug 6.12.5-trim ge9 not support"
-				exit 1
-            fi
-            if [[ ${nowKernelBuildNum} -ge 10 ]]; then
-                echo "debug 6.12.5-trim ge10"
-                cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.5-trim_10/* /lib/modules/6.12.5-trim/updates/dkms/i915-sriov-dkms/
-            fi
-            ;;
-			
-        6.12.18-trim)
-            echo "debug 6.12.18-trim"
-            cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.18-trim_3/* /lib/modules/6.12.18-trim/updates/dkms/i915-sriov-dkms/
-            ;;
+	fi
 
-        *)
-    esac
+	mkdir -p /lib/modules/${nowKernelVer}/updates/dkms/i915-sriov-dkms
 
-    echo "depmod：`depmod`"
+	case "$nowKernelVer" in
+
+	6.12.5-trim)
+		if [[ ${nowKernelBuildNum} -le 9 ]]; then
+			echo "debug 6.12.5-trim ge9 not support"
+			exit 1
+		fi
+		if [[ ${nowKernelBuildNum} -ge 10 ]]; then
+			echo "debug 6.12.5-trim ge10"
+			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.5-trim_10/* /lib/modules/6.12.5-trim/updates/dkms/i915-sriov-dkms/
+		fi
+		;;
+
+	6.12.18-trim)
+		echo "debug 6.12.18-trim"
+		cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.18-trim_3/* /lib/modules/6.12.18-trim/updates/dkms/i915-sriov-dkms/
+		;;
+
+	*) ;;
+	esac
+
+	echo "depmod：$(depmod)"
 	echo "modprobe -D"
-	echo "`modprobe -D i915`"
-	echo "`modprobe -D kvmgt`"
-	echo "`modprobe -v i915`"
+	echo "$(modprobe -D i915)"
+	echo "$(modprobe -D kvmgt)"
+	echo "$(modprobe -v i915)"
 	echo "/proc/cmdline"
-	echo "`cat /proc/cmdline`"
+	echo "$(cat /proc/cmdline)"
+	cp -nv ${PACKAGE_BASE}/app/firmware/* /usr/lib/firmware/i915/
 	echo "firmware list"
-	echo "`ls -al /usr/lib/firmware/i915/`"
-	echo "`md5sum /usr/lib/firmware/i915/*`"
-    echo "dmesg `uptime`"
-	echo "`dmesg |grep i915 |grep -v '0x550b failed' |grep -v 'state (-EPROTO)'`"
+	echo "$(ls -al /usr/lib/firmware/i915/)"
+	echo "$(md5sum /usr/lib/firmware/i915/*)"
+	echo "dmesg $(uptime)"
+	echo "$(dmesg | grep i915 | grep -v '0x550b failed' | grep -v 'state (-EPROTO)')"
 	print_pci
-    ;;
-stop)
+	;;
+stop) ;;
 
-    ;;
 status)
-    if [ ! -d "/lib/modules/${nowKernelVer}/updates/dkms/i915-sriov-dkms" ]; then
-        echo -e "$(date +'%Y/%m/%d %H:%M:%S')\t" $0 $*
-        echo "dmesg `uptime`"
-        echo "`dmesg |grep i915 |grep -v '0x550b failed' |grep -v 'state (-EPROTO)'`"
-        exit 3
-    fi
-    ;;
+	if [ ! -d "/lib/modules/${nowKernelVer}/updates/dkms/i915-sriov-dkms" ]; then
+		echo -e "$(date +'%Y/%m/%d %H:%M:%S')\t" $0 $*
+		echo "dmesg $(uptime)"
+		echo "$(dmesg | grep i915 | grep -v '0x550b failed' | grep -v 'state (-EPROTO)')"
+		exit 3
+	fi
+	;;
 *)
-    exit 1
-    ;;
+	exit 1
+	;;
 esac
