@@ -34,7 +34,6 @@ start)
 		exit 1
 	fi
 
-	mkdir -p /lib/modules/${nowKernelVer}/updates/dkms/i915-sriov-dkms
 
 	case "$nowKernelVer" in
 
@@ -45,40 +44,62 @@ start)
 		fi
 		if [[ ${nowKernelBuildNum} -ge 10 ]]; then
 			echo "debug 6.12.5-trim ge10"
+			mkdir -p /lib/modules/6.12.5-trim/updates/dkms/i915-sriov-dkms
 			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.5-trim_10/* /lib/modules/6.12.5-trim/updates/dkms/i915-sriov-dkms/
 		fi
 		;;
 
 	6.12.18-trim)
 		echo "debug 6.12.18-trim"
+		mkdir -p /lib/modules/6.12.18-trim/updates/dkms/i915-sriov-dkms
 		cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.18-trim_3/* /lib/modules/6.12.18-trim/updates/dkms/i915-sriov-dkms/
 		;;
 
 	*) ;;
 	esac
 
-	echo "depmod：$(depmod)"
-	echo "modprobe -D"
-	echo "$(modprobe -D i915)"
-	echo "$(modprobe -D kvmgt)"
-	echo "$(modprobe -v i915)"
-	echo "/proc/cmdline"
-	echo "$(cat /proc/cmdline)"
 	cp -nv ${PACKAGE_BASE}/app/firmware/* /usr/lib/firmware/i915/
 	echo "firmware list"
-	echo "$(ls -al /usr/lib/firmware/i915/)"
-	echo "$(md5sum /usr/lib/firmware/i915/*)"
+	ls -al /usr/lib/firmware/i915/
+	md5sum /usr/lib/firmware/i915/*
+
+	echo "depmod："
+	depmod
+	if grub-mkconfig -o /dev/null;then
+		echo "update-initramfs -u"
+		update-initramfs -u
+	else
+	  echo "grub file with error"
+	fi
+
+	for mod in i915 kvmgt; do
+	  echo "modprobe -D $mod"
+	  modprobe -D "$mod"
+	done
+
+	echo "try remove driver"
+	if modprobe -r -v i915;then
+	  echo "try load driver"
+		modprobe -v i915
+		systemctl restart mediasrv.service resmon_service.service || echo "systemctl restart failed"
+	fi
+
+	echo "find i915 file"
+	find /lib/modules/ -name "*915*"
+	echo "/proc/cmdline"
+	cat /proc/cmdline
+
 	echo "dmesg $(uptime)"
-	echo "$(dmesg | grep i915 | grep -v '0x550b failed' | grep -v 'state (-EPROTO)')"
+	dmesg | grep i915 | grep -v '0x550b failed' | grep -v 'state (-EPROTO)'
 	print_pci
 	;;
 stop) ;;
 
 status)
-	if [ ! -d "/lib/modules/${nowKernelVer}/updates/dkms/i915-sriov-dkms" ]; then
+	if [ ! -d "/lib/modules/$(uname -r)/updates/dkms/i915-sriov-dkms" ]; then
 		echo -e "$(date +'%Y/%m/%d %H:%M:%S')\t" $0 $*
 		echo "dmesg $(uptime)"
-		echo "$(dmesg | grep i915 | grep -v '0x550b failed' | grep -v 'state (-EPROTO)')"
+		dmesg | grep i915 | grep -v '0x550b failed' | grep -v 'state (-EPROTO)'
 		exit 3
 	fi
 	;;

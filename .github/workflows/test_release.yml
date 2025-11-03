@@ -21,7 +21,7 @@ env:
   target_dkms_version: "2025.07.22"
   target_commit_sha: "b66c5cf2"
   linux_firmware_commit_sha: "20cf22e5"
-  this_pack_version: "1.0.5"
+  this_pack_version: "1.0.6"
 jobs:
   setup:
     runs-on: ubuntu-latest
