@@ -19,9 +19,9 @@ on:
 env:
   proj_name: "i915-sriov-dkms"
   target_dkms_version: "2025.07.22"
-  target_commit_sha: "b66c5cf2"
+  target_commit_sha: "7669b9fa"
   linux_firmware_commit_sha: "20cf22e5"
-  this_pack_version: "1.0.6"
+  this_pack_version: "1.0.7"
 jobs:
   setup:
     runs-on: ubuntu-latest
