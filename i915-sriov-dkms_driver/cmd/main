@@ -17,7 +17,7 @@ fi
 
 PACKAGE_BASE=${TRIM_APPDEST}
 
-supportKernelList=("6.12.5-trim" "6.12.18-trim")
+supportKernelList=("6.12.5-trim" "6.12.18-trim" "6.18.6-trim")
 
 nowKernelVer=$(uname -r)
 nowKernelBuildNum=$(uname -v | grep -oP '(?<=#)\d+')
@@ -53,6 +53,12 @@ start)
 		echo "debug 6.12.18-trim"
 		mkdir -p /lib/modules/6.12.18-trim/updates/dkms/i915-sriov-dkms
 		cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.18-trim_3/* /lib/modules/6.12.18-trim/updates/dkms/i915-sriov-dkms/
+		;;
+
+	6.18.6-trim)
+		echo "debug 6.18.6-trim"
+		mkdir -p /lib/modules/6.18.6-trim/updates/dkms/i915-sriov-dkms
+		cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.6-trim-297-amd64/* /lib/modules/6.18.6-trim/updates/dkms/i915-sriov-dkms/
 		;;
 
 	*) ;;
