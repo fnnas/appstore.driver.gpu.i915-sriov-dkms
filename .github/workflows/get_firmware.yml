@@ -22,6 +22,12 @@ jobs:
         run: |
           git clone https://gitlab.com/kernel-firmware/linux-firmware
           cd linux-firmware && git reset --hard ${{ inputs.linux_firmware_commit_sha }}
+      - name: ls -la
+        run: |
+          ls -la linux-firmware/i915/
+      - name: md5sum
+        run: |
+          md5sum linux-firmware/i915/*
       - name: upload firmware
         uses: actions/upload-artifact@master
         with:

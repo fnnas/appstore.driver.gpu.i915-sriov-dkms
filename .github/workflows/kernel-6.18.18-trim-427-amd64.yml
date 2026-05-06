@@ -32,9 +32,14 @@ jobs:
           git clone https://github.com/GreenDamTan/i915-sriov-dkms.git
           cd i915-sriov-dkms && git reset --hard ${{ inputs.target_commit_sha }}
       - name: build ko
+        id: build_ko
         run: |
           dkms add ./i915-sriov-dkms
           dkms install i915-sriov-dkms/${{ inputs.target_dkms_version }} --verbose
+      - name: cat build log
+        if: ${{ failure() && steps.build_ko.outcome == 'failure' }}
+        run: |
+          cat /var/lib/dkms/i915-sriov-dkms/*/build/make.log || true
       - name: copy ko
         run: |
           mkdir -p upload/${{ inputs.proj_name }}_${{ env.kernel_name }}

@@ -18,10 +18,10 @@ on:
 
 env:
   proj_name: "i915-sriov-dkms"
-  target_dkms_version: "2026.03.05"
-  target_commit_sha: "d1a9f212"
-  linux_firmware_commit_sha: "3692c4d6"
-  this_pack_version: "1.0.9"
+  target_dkms_version: "2026.05.06"
+  target_commit_sha: "d146e98a" #2026.05.06
+  linux_firmware_commit_sha: "a3d046ca8eee45ff2d2eda129b495c686dd78040" #i915: Xe3LPD DMC v2.34
+  this_pack_version: "1.0.10"
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -56,8 +56,8 @@ jobs:
       - setup
     with:
       proj_name: ${{ needs.setup.outputs.proj_name }}
-      target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
-      target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
+      target_commit_sha: "d1a9f212a2f517bdffe4a850f5cbdd0930be17a8" #master-2026.03.05-modify
+      target_dkms_version: "2026.03.05"
   build_6-12-18-trim-3:
     uses: ./.github/workflows/kernel-6.12.18-trim-3.yml
     secrets: inherit
@@ -65,8 +65,8 @@ jobs:
       - setup
     with:
       proj_name: ${{ needs.setup.outputs.proj_name }}
-      target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
-      target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
+      target_commit_sha: "d1a9f212a2f517bdffe4a850f5cbdd0930be17a8" #master-2026.03.05-modify
+      target_dkms_version: "2026.03.05"
   build_6-18-6-trim-297-amd64:
     uses: ./.github/workflows/kernel-6.18.6-trim-297-amd64.yml
     secrets: inherit
