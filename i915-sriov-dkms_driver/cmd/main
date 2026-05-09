@@ -39,7 +39,7 @@ start)
 
 	6.12.5-trim)
 		if [[ ${nowKernelBuildNum} -le 9 ]]; then
-			echo "debug 6.12.5-trim ge9 not support"
+			echo "debug 6.12.5-trim le9 not support"
 			exit 1
 		fi
 		if [[ ${nowKernelBuildNum} -ge 10 ]]; then
@@ -64,7 +64,11 @@ start)
 	6.18.18-trim)
 		echo "debug 6.18.18-trim"
 		mkdir -p /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms
-		cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-427-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
+		if [[ ${nowKernelBuildNum} -lt 570 ]]; then
+			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-427-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
+		else
+			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-570-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
+		fi
 		;;
 
 	*) ;;
