@@ -1,9 +1,9 @@
-name: kernel-6.18.18-trim-570-amd64
+name: kernel-build
 permissions:
-  contents: write  # Allow writing to repository contents (for pushing tags)
-  actions: write   # Allows triggering actions
+  contents: write
+  actions: write
 on:
-  workflow_call: # This allows this workflow to be called from another workflow
+  workflow_call:
     inputs:
       proj_name:
         required: true
@@ -17,20 +17,35 @@ on:
         required: true
         type: string
         default: ""
+      kernel_name:
+        required: true
+        type: string
+      kernel_ver:
+        required: true
+        type: string
+      container_image:
+        required: true
+        type: string
+      patch_mode:
+        required: false
+        type: string
+        default: ""
 jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: makedie/fnos:kernHead-6.18.18-trim-570-amd64
+      image: ${{ inputs.container_image }}
       options: -v ${{ github.workspace }}:${{ github.workspace }}
-    env:
-      kernel_name: "6.18.18-trim-570-amd64"
-      kernel_ver: "6.18.18-trim"
     steps:
       - name: Check out repository code
         run: |
           git clone https://github.com/GreenDamTan/i915-sriov-dkms.git
           cd i915-sriov-dkms && git reset --hard ${{ inputs.target_commit_sha }}
+      - name: Apply legacy 6.6.38 patch
+        if: ${{ inputs.patch_mode == 'legacy_6_6_38' }}
+        run: |
+          sed "s/.require_force_probe = 1,/.require_force_probe = 0,/g" -i i915-sriov-dkms/drivers/gpu/drm/i915/i915_pci.c
+          sed "s/max_vfs, 0/max_vfs, 7/g" -i i915-sriov-dkms/drivers/gpu/drm/i915/i915_params.h
       - name: build ko
         id: build_ko
         run: |
@@ -42,10 +57,10 @@ jobs:
           cat /var/lib/dkms/i915-sriov-dkms/*/build/make.log || true
       - name: copy ko
         run: |
-          mkdir -p upload/${{ inputs.proj_name }}_${{ env.kernel_name }}
-          cp -rf /lib/modules/${{ env.kernel_ver }}/updates/dkms/* upload/${{ inputs.proj_name }}_${{ env.kernel_name }}/
+          mkdir -p upload/${{ inputs.proj_name }}_${{ inputs.kernel_name }}
+          cp -rf /lib/modules/${{ inputs.kernel_ver }}/updates/dkms/* upload/${{ inputs.proj_name }}_${{ inputs.kernel_name }}/
       - name: upload ko
         uses: actions/upload-artifact@master
         with:
-          name: ${{ inputs.proj_name }}-${{ env.kernel_name }}
+          name: ${{ inputs.proj_name }}-${{ inputs.kernel_name }}
           path: upload

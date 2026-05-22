@@ -70,7 +70,11 @@ gh workflow run test_release.yml -f make_release=true
 
 `i915-sriov-dkms_driver/manifest` 中的 `arch` 是飞牛已废弃字段，按文档固定保留为 `x86_64`；`platform` 是当前架构声明字段，本项目为 x86 应用，固定为 `x86`。
 
-各 `kernel-*.yml` 工作流在 `makedie/fnos:kernHead-...` 容器中执行 DKMS 构建，然后把 `/lib/modules/<kernel>/updates/dkms/*` 复制成 artifact。`get_firmware.yml` 克隆 linux-firmware 并上传 `i915/` 目录。`test_release.yml` 下载这些 artifact 到 `app/app/`，再执行：
+`.github/workflows/kernel-build.yml` 是唯一的内核构建 reusable workflow。`test_release.yml` 的 `build_kernel.strategy.matrix.include` 集中声明每个内核的 `container_image`、`kernel_name`、`kernel_ver`、`target_commit_sha`、`target_dkms_version` 和 `patch_mode`。旧内核的固定提交、固定 DKMS 版本，以及 `6.6.38` 的 `legacy_6_6_38` patch 模式都应在这个矩阵中维护。
+
+`kernel-build.yml` 在 `makedie/fnos:kernHead-...` 容器中克隆 DKMS 源码、检出矩阵传入的提交、按需应用旧内核 patch、执行 DKMS 构建，然后把 `/lib/modules/<kernel>/updates/dkms/*` 复制成 artifact。artifact 名称由 `${proj_name}-${kernel_name}` 合成，artifact 内部目录由 `${proj_name}_${kernel_name}` 合成；这些命名规则必须和 `cmd/main` 的运行时路径保持一致。
+
+`get_firmware.yml` 克隆 linux-firmware 并上传 `i915/` 目录。`test_release.yml` 等待 firmware 和整个 `build_kernel` 矩阵完成后，单独下载 firmware 到 `app/app/firmware`，再用 `${proj_name}-6*` pattern 和 `merge-multiple: true` 将所有内核 artifact 合并下载到 `app/app/`，然后执行：
 
 1. 用 `sed` 替换 `i915-sriov-dkms_driver/manifest` 中的 `this_pack_manifest_version` 占位符。`manifest` 不展示单个 `target_commit_sha`，因为一次打包会包含多个来源提交。
 2. 在 `app/` 下生成内部 `app.tgz`，内容为运行时的 `app/` 和 `ui/`。
@@ -108,4 +112,4 @@ gh workflow run test_release.yml -f make_release=true
 
 更新上游 DKMS 版本时，通常需要同步修改 `.github/workflows/test_release.yml` 中的 `target_dkms_version`、`target_commit_sha`、必要的单独旧内核覆盖值，以及 `this_pack_manifest_version`；`i915-sriov-dkms_driver/manifest` 应保留版本构建期占位符，只在支持内核描述或文案变化时修改。
 
-新增内核支持时，需要新增或复制对应的 `kernel-*.yml` 工作流，确保容器镜像、`kernel_name`、`kernel_ver`、artifact 名称、`test_release.yml` 的 job 依赖和下载路径、以及 `cmd/main` 的运行时目录名完全一致。目录名不一致会导致应用安装时找不到已打包的模块产物。
+新增内核支持时，应在 `.github/workflows/test_release.yml` 的 `build_kernel.strategy.matrix.include` 中增加条目，并确保 `container_image`、`kernel_name`、`kernel_ver`、`target_commit_sha`、`target_dkms_version` 和 `patch_mode` 完整。`kernel-build.yml` 会按 `${proj_name}-${kernel_name}` 合成 artifact 名称，并按 `${proj_name}_${kernel_name}` 合成包内模块目录；新增条目的 `kernel_name` 必须能生成 `cmd/main` 运行时会查找的目录名，否则应用安装时会找不到已打包的模块产物。
