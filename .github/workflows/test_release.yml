@@ -15,6 +15,11 @@ on:
         required: true
         type: boolean
         default: false
+      enable_ccache:
+        description: '是否启用 ccache 编译缓存？'
+        required: true
+        type: boolean
+        default: true
 
 env:
   proj_name: "i915-sriov-dkms"
@@ -99,6 +104,41 @@ jobs:
       kernel_ver: ${{ matrix.kernel_ver }}
       container_image: ${{ matrix.container_image }}
       patch_mode: ${{ matrix.patch_mode }}
+      enable_ccache: ${{ inputs.enable_ccache }}
+
+  prune_ccache:
+    if: ${{ always() && inputs.enable_ccache }}
+    needs:
+      - build_kernel
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Keep latest two ccache entries per kernel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          cache_ids="$(gh cache list --key ccache- --limit 1000 --json id,key,createdAt --jq '
+            map(select(.key | test("^ccache-.+-[0-9]+-[0-9]+$")))
+            | group_by(.key | sub("-[0-9]+-[0-9]+$"; ""))
+            | map(sort_by(.createdAt) | reverse | .[2:][]?)
+            | .[].id
+          ')"
+
+          if [ -z "$cache_ids" ]; then
+            echo "No old ccache entries to delete."
+            exit 0
+          fi
+
+          while IFS= read -r cache_id; do
+            [ -n "$cache_id" ] || continue
+            echo "Deleting old ccache entry: $cache_id"
+            gh cache delete "$cache_id" || true
+          done <<< "$cache_ids"
 
   pack_app_tgz:
     needs:
@@ -107,14 +147,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: restore firmware
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ env.proj_name }}-${{ env.linux_firmware_commit_sha }}-firmware
           path: app/app/firmware
       - name: restore kernel artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: ${{ env.proj_name }}-6*
           path: app/app/
@@ -135,19 +175,19 @@ jobs:
         run: |
           tar zcvf appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz i915-sriov-dkms_driver
       - name: 上传应用包
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@v6
         with:
           name: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz
           path: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz
       - name: Create GitHub Release
         if: ${{ inputs.make_release }}
-        uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ env.this_pack_manifest_version }}
-          prerelease: true
-          release_name: "fnnas.appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ env.this_pack_manifest_version }}" \
+            --title "fnnas.appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}" \
+            --prerelease \
+            --notes "Automated prerelease build."
 
       - name: Upload Release Assets
         if: ${{ inputs.make_release }}
@@ -157,7 +197,7 @@ jobs:
           echo "Uploading release assets..."
 
           echo "Uploading appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz"
-          gh release upload "${{ env.this_pack_manifest_version }}" "appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz" || echo "Failed to upload $file"
+          gh release upload "${{ env.this_pack_manifest_version }}" "appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz" || echo "Failed to upload appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz"
 
           echo "Upload completed!"
 

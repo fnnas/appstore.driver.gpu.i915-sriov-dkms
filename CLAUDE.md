@@ -45,7 +45,7 @@ tar tzf appstore.driver.gpu.i915-sriov-dkms-<版本>-<DKMS提交>.tgz
 
 ### CI 构建与发布
 
-主入口工作流是 `.github/workflows/test_release.yml`，通过 `workflow_dispatch` 触发。它会构建所有内核产物、获取 firmware、组装 `app.tgz` 和最终外层包；`make_release=false` 只上传 artifact，不创建 GitHub Release。
+主入口工作流是 `.github/workflows/test_release.yml`，通过 `workflow_dispatch` 触发。它会构建所有内核产物、获取 firmware、组装 `app.tgz` 和最终外层包；`make_release=false` 只上传 artifact，不创建 GitHub Release。`enable_ccache` 为中文布尔输入，默认开启，用于控制是否启用编译缓存；传 `false` 时会跳过 ccache 的恢复、安装、统计和保存步骤。
 
 ```bash
 gh workflow run test_release.yml -f make_release=false
@@ -72,7 +72,7 @@ gh workflow run test_release.yml -f make_release=true
 
 `.github/workflows/kernel-build.yml` 是唯一的内核构建 reusable workflow。`test_release.yml` 的 `build_kernel.strategy.matrix.include` 集中声明每个内核的 `container_image`、`kernel_name`、`kernel_ver`、`target_commit_sha`、`target_dkms_version` 和 `patch_mode`。旧内核的固定提交、固定 DKMS 版本，以及 `6.6.38` 的 `legacy_6_6_38` patch 模式都应在这个矩阵中维护。
 
-`kernel-build.yml` 在 `makedie/fnos:kernHead-...` 容器中克隆 DKMS 源码、检出矩阵传入的提交、按需应用旧内核 patch、执行 DKMS 构建，然后把 `/lib/modules/<kernel>/updates/dkms/*` 复制成 artifact。artifact 名称由 `${proj_name}-${kernel_name}` 合成，artifact 内部目录由 `${proj_name}_${kernel_name}` 合成；这些命名规则必须和 `cmd/main` 的运行时路径保持一致。
+`kernel-build.yml` 在 `makedie/fnos:kernHead-...` 容器中克隆 DKMS 源码、检出矩阵传入的提交、按需应用旧内核 patch、执行 DKMS 构建，然后把 `/lib/modules/<kernel>/updates/dkms/*` 复制成 artifact。`test_release.yml` 的 `workflow_dispatch` 提供中文布尔输入 `enable_ccache`，默认开启；关闭时会跳过 ccache 的恢复、安装、统计和保存步骤。开启时，每个内核矩阵项会使用独立的 ccache 目录，并显式执行 restore/save：恢复时按 `kernel_name` 维度尽量复用最近缓存，保存时用当前 workflow run 的唯一 key 回写新缓存。编译器 wrapper 会按 PATH 自动发现 `gcc`、`g++`、`cc`、`c++` 以及任意 triplet 前缀的 `*-gcc` / `*-g++`，不写死 `x86_64-linux-gnu-*`。artifact 名称由 `${proj_name}-${kernel_name}` 合成，artifact 内部目录由 `${proj_name}_${kernel_name}` 合成；这些命名规则必须和 `cmd/main` 的运行时路径保持一致。
 
 `get_firmware.yml` 克隆 linux-firmware 并上传 `i915/` 目录。`test_release.yml` 等待 firmware 和整个 `build_kernel` 矩阵完成后，单独下载 firmware 到 `app/app/firmware`，再用 `${proj_name}-6*` pattern 和 `merge-multiple: true` 将所有内核 artifact 合并下载到 `app/app/`，然后执行：
 

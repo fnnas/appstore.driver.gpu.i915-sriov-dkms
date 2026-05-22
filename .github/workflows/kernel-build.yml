@@ -30,17 +30,70 @@ on:
         required: false
         type: string
         default: ""
+      enable_ccache:
+        required: false
+        type: boolean
+        default: true
 jobs:
   build:
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.container_image }}
       options: -v ${{ github.workspace }}:${{ github.workspace }}
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache/${{ inputs.kernel_name }}
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPRESS: "true"
+      CCACHE_MAXSIZE: 1G
+      CCACHE_KEY: ccache-${{ inputs.kernel_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+      CCACHE_RESTORE_PREFIX: ccache-${{ inputs.kernel_name }}-
     steps:
       - name: Check out repository code
         run: |
           git clone https://github.com/GreenDamTan/i915-sriov-dkms.git
           cd i915-sriov-dkms && git reset --hard ${{ inputs.target_commit_sha }}
+      - name: Restore ccache
+        if: ${{ inputs.enable_ccache }}
+        id: restore_ccache
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ env.CCACHE_KEY }}
+          restore-keys: |
+            ${{ env.CCACHE_RESTORE_PREFIX }}
+      - name: Set up ccache
+        if: ${{ inputs.enable_ccache }}
+        id: setup_ccache
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y ccache
+          mkdir -p "$CCACHE_DIR" "$GITHUB_WORKSPACE/ccache-bin"
+          ccache_path="$(command -v ccache)"
+          declare -A seen=()
+          while IFS= read -r compiler; do
+            case "$compiler" in
+              gcc|g++|cc|c++|gcc-[0-9]*|g++-[0-9]*|cc-[0-9]*|c++-[0-9]*|*-gcc|*-g++|*-cc|*-c++|*-gcc-[0-9]*|*-g++-[0-9]*|*-cc-[0-9]*|*-c++-[0-9]*)
+                [[ -n "${seen[$compiler]+x}" ]] && continue
+                compiler_path="$(command -v "$compiler" || true)"
+                [[ -x "$compiler_path" ]] || continue
+                ln -sf "$ccache_path" "$GITHUB_WORKSPACE/ccache-bin/$compiler"
+                seen[$compiler]=1
+                ;;
+            esac
+          done < <(compgen -c | sort -u)
+          echo "$GITHUB_WORKSPACE/ccache-bin" >> "$GITHUB_PATH"
+          ccache --version
+          ccache --set-config=cache_dir="$CCACHE_DIR"
+          ccache --set-config=max_size="$CCACHE_MAXSIZE"
+          ccache --set-config=compression=true
+          ccache --set-config=compiler_check=content
+          ccache --set-config=hash_dir=false
+          ccache --set-config=path="$PATH"
+          ccache --zero-stats
+          ccache --show-config
+          echo "ccache wrappers:"
+          find "$GITHUB_WORKSPACE/ccache-bin" -maxdepth 1 -type l -printf '%f -> %l\n' | sort
       - name: Apply legacy 6.6.38 patch
         if: ${{ inputs.patch_mode == 'legacy_6_6_38' }}
         run: |
@@ -49,18 +102,37 @@ jobs:
       - name: build ko
         id: build_ko
         run: |
+          if command -v ccache >/dev/null 2>&1; then
+            echo "compiler resolution before build:"
+            for compiler in cc gcc g++ c++ x86_64-linux-gnu-gcc x86_64-linux-gnu-g++; do
+              if command -v "$compiler" >/dev/null 2>&1; then
+                echo "$compiler -> $(command -v "$compiler")"
+              fi
+            done
+          fi
           dkms add ./i915-sriov-dkms
           dkms install i915-sriov-dkms/${{ inputs.target_dkms_version }} --verbose
       - name: cat build log
         if: ${{ failure() && steps.build_ko.outcome == 'failure' }}
         run: |
           cat /var/lib/dkms/i915-sriov-dkms/*/build/make.log || true
+      - name: Show ccache stats
+        if: ${{ always() && inputs.enable_ccache }}
+        run: |
+          ccache --show-stats || true
+      - name: Save ccache
+        if: ${{ always() && inputs.enable_ccache && steps.setup_ccache.outcome == 'success' }}
+        uses: actions/cache/save@v5
+        continue-on-error: true
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ env.CCACHE_KEY }}
       - name: copy ko
         run: |
           mkdir -p upload/${{ inputs.proj_name }}_${{ inputs.kernel_name }}
           cp -rf /lib/modules/${{ inputs.kernel_ver }}/updates/dkms/* upload/${{ inputs.proj_name }}_${{ inputs.kernel_name }}/
       - name: upload ko
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.proj_name }}-${{ inputs.kernel_name }}
           path: upload

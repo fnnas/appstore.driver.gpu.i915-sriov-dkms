@@ -29,7 +29,7 @@ jobs:
         run: |
           md5sum linux-firmware/i915/*
       - name: upload firmware
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.proj_name }}-${{ inputs.linux_firmware_commit_sha }}-firmware
           path: linux-firmware/i915
