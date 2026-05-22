@@ -66,13 +66,16 @@ gh workflow run test_release.yml -f make_release=true
 - `target_dkms_version`：传给 `dkms install i915-sriov-dkms/<version>` 的 DKMS 版本。
 - `target_commit_sha`：构建新内核产物时检出的 `GreenDamTan/i915-sriov-dkms` 提交。
 - `linux_firmware_commit_sha`：从 `kernel-firmware/linux-firmware` 取 `i915/` firmware 的提交。
-- `this_pack_version`：最终应用包版本，同时应与 `i915-sriov-dkms_driver/manifest` 的 `version` 保持一致。
+- `this_pack_manifest_version`：打包前写入 `i915-sriov-dkms_driver/manifest`，同时作为最终外层应用包文件名和 Release tag 使用的版本。
+
+`i915-sriov-dkms_driver/manifest` 中的 `arch` 是飞牛已废弃字段，按文档固定保留为 `x86_64`；`platform` 是当前架构声明字段，本项目为 x86 应用，固定为 `x86`。
 
 各 `kernel-*.yml` 工作流在 `makedie/fnos:kernHead-...` 容器中执行 DKMS 构建，然后把 `/lib/modules/<kernel>/updates/dkms/*` 复制成 artifact。`get_firmware.yml` 克隆 linux-firmware 并上传 `i915/` 目录。`test_release.yml` 下载这些 artifact 到 `app/app/`，再执行：
 
-1. 在 `app/` 下生成内部 `app.tgz`，内容为运行时的 `app/` 和 `ui/`。
-2. 把 `app.tgz` 移到 `i915-sriov-dkms_driver/`。
-3. 将整个 `i915-sriov-dkms_driver/` 打成最终应用商店包。
+1. 用 `sed` 替换 `i915-sriov-dkms_driver/manifest` 中的 `this_pack_manifest_version` 占位符。`manifest` 不展示单个 `target_commit_sha`，因为一次打包会包含多个来源提交。
+2. 在 `app/` 下生成内部 `app.tgz`，内容为运行时的 `app/` 和 `ui/`。
+3. 把 `app.tgz` 移到 `i915-sriov-dkms_driver/`。
+4. 将整个 `i915-sriov-dkms_driver/` 打成最终应用商店包。
 
 ## 运行时安装架构
 
@@ -103,6 +106,6 @@ gh workflow run test_release.yml -f make_release=true
 
 ## 修改版本或上游 DKMS 时的注意点
 
-更新上游 DKMS 版本时，通常需要同步修改 `.github/workflows/test_release.yml` 中的 `target_dkms_version`、`target_commit_sha`、必要的单独旧内核覆盖值，以及 `i915-sriov-dkms_driver/manifest` 中的 `version`、`desc` 支持列表和 `changelog`。
+更新上游 DKMS 版本时，通常需要同步修改 `.github/workflows/test_release.yml` 中的 `target_dkms_version`、`target_commit_sha`、必要的单独旧内核覆盖值，以及 `this_pack_manifest_version`；`i915-sriov-dkms_driver/manifest` 应保留版本构建期占位符，只在支持内核描述或文案变化时修改。
 
 新增内核支持时，需要新增或复制对应的 `kernel-*.yml` 工作流，确保容器镜像、`kernel_name`、`kernel_ver`、artifact 名称、`test_release.yml` 的 job 依赖和下载路径、以及 `cmd/main` 的运行时目录名完全一致。目录名不一致会导致应用安装时找不到已打包的模块产物。

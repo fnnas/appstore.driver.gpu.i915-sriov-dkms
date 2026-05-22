@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       make_release:
-        description: 'Do you want to create a release?'
+        description: '是否创建 GitHub Release？'
         required: true
         type: boolean
         default: false
@@ -21,7 +21,7 @@ env:
   target_dkms_version: "2026.05.06"
   target_commit_sha: "d146e98a" #2026.05.06
   linux_firmware_commit_sha: "a3d046ca8eee45ff2d2eda129b495c686dd78040" #i915: Xe3LPD DMC v2.34
-  this_pack_version: "1.0.12"
+  this_pack_manifest_version: "1.0.12"
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -159,6 +159,12 @@ jobs:
           name: ${{ env.proj_name }}-6.18.18-trim-587-amd64
           path: app/app/
 
+      - name: Replace manifest build-time values
+        run: |
+          sed -i \
+            -e "s|this_pack_manifest_version|${{ env.this_pack_manifest_version }}|g" \
+            i915-sriov-dkms_driver/manifest
+
       - name: 打包app.tgz
         run: |
           cd app/
@@ -166,21 +172,21 @@ jobs:
           mv app.tgz ../i915-sriov-dkms_driver/
       - name: 打包package
         run: |
-          tar zcvf appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}.tgz i915-sriov-dkms_driver
+          tar zcvf appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz i915-sriov-dkms_driver
       - name: 上传应用包
         uses: actions/upload-artifact@master
         with:
-          name: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}.tgz
-          path: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}.tgz
+          name: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz
+          path: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz
       - name: Create GitHub Release
         if: ${{ inputs.make_release }}
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ env.this_pack_version }}
+          tag_name: ${{ env.this_pack_manifest_version }}
           prerelease: true
-          release_name: "fnnas.appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}"
+          release_name: "fnnas.appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}"
 
       - name: Upload Release Assets
         if: ${{ inputs.make_release }}
@@ -189,8 +195,8 @@ jobs:
         run: |
           echo "Uploading release assets..."
           
-          echo "Uploading appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}.tgz"
-          gh release upload "${{ env.this_pack_version }}" "appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_version }}-${{ env.target_commit_sha }}.tgz" || echo "Failed to upload $file"
+          echo "Uploading appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz"
+          gh release upload "${{ env.this_pack_manifest_version }}" "appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz" || echo "Failed to upload $file"
           
           echo "Upload completed!"
 
@@ -200,4 +206,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Uploaded assets:"
-          gh release view "${{ env.this_pack_version }}" --json assets -q '.assets[].name'
+          gh release view "${{ env.this_pack_manifest_version }}" --json assets -q '.assets[].name'
