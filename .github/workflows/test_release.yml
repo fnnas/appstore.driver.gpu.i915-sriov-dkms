@@ -122,23 +122,57 @@ jobs:
         run: |
           set -euo pipefail
 
-          cache_ids="$(gh cache list --key ccache- --limit 1000 --json id,key,createdAt --jq '
+          echo "Repository: $GH_REPO"
+          echo "Authenticated as: $(gh api user --jq .login 2>/dev/null || echo unknown)"
+          echo "Listing ccache entries..."
+
+          caches_file="$(mktemp)"
+          delete_file="$(mktemp)"
+
+          gh cache list --key ccache- --limit 1000 --json id,key,createdAt,lastAccessedAt,sizeInBytes > "$caches_file"
+
+          cache_count="$(jq 'length' "$caches_file")"
+          echo "Found $cache_count cache entries with ccache- prefix."
+          jq -r '
+            sort_by(.key)
+            | .[]
+            | "- id=\(.id) key=\(.key) createdAt=\(.createdAt) lastAccessedAt=\(.lastAccessedAt) size=\(.sizeInBytes)"
+          ' "$caches_file"
+
+          jq -c '
             map(select(.key | test("^ccache-.+-[0-9]+-[0-9]+$")))
             | group_by(.key | sub("-[0-9]+-[0-9]+$"; ""))
             | map(sort_by(.createdAt) | reverse | .[2:][]?)
-            | .[].id
-          ')"
+            | .[]
+          ' "$caches_file" > "$delete_file"
 
-          if [ -z "$cache_ids" ]; then
+          delete_count="$(jq -s 'length' "$delete_file")"
+          if [ "$delete_count" -eq 0 ]; then
             echo "No old ccache entries to delete."
             exit 0
           fi
 
-          while IFS= read -r cache_id; do
-            [ -n "$cache_id" ] || continue
-            echo "Deleting old ccache entry: $cache_id"
-            gh cache delete "$cache_id" || true
-          done <<< "$cache_ids"
+          echo "Deleting $delete_count old ccache entries. Keeping latest two entries per kernel key prefix."
+          jq -r '
+            "- id=\(.id) key=\(.key) createdAt=\(.createdAt) lastAccessedAt=\(.lastAccessedAt) size=\(.sizeInBytes)"
+          ' "$delete_file"
+
+          while IFS= read -r cache; do
+            [ -n "$cache" ] || continue
+            cache_id="$(jq -r '.id' <<< "$cache")"
+            cache_key="$(jq -r '.key' <<< "$cache")"
+            cache_created_at="$(jq -r '.createdAt' <<< "$cache")"
+            echo "::group::Delete cache id=$cache_id key=$cache_key"
+            echo "createdAt=$cache_created_at"
+            if output="$(gh cache delete "$cache_id" 2>&1)"; then
+              echo "Deleted cache id=$cache_id key=$cache_key"
+            else
+              status="$?"
+              echo "::warning::Failed to delete cache id=$cache_id key=$cache_key exit=$status"
+              echo "$output"
+            fi
+            echo "::endgroup::"
+          done < "$delete_file"
 
   pack_app_tgz:
     needs:
