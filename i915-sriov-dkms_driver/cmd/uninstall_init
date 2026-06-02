@@ -1,6 +1,6 @@
 #!/bin/bash
 echo -e "$(date +'%Y/%m/%d %H:%M:%S')\t" $0 $*
-rm -rf /lib/modules/`uname -r`/updates/dkms/i915-sriov-dkms
+rm -rf /lib/modules/*/updates/dkms/i915-sriov-dkms
 echo "depmod：`depmod`"
 echo "modprobe -D"
 echo "`modprobe -D i915`"

@@ -68,8 +68,10 @@ start)
 			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-427-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
 		elif [[ ${nowKernelBuildNum} -lt 587 ]]; then
 			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-570-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
-		else
+		elif [[ ${nowKernelBuildNum} -lt 717 ]]; then
 			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-587-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
+		else
+			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-717-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
 		fi
 		;;
 
