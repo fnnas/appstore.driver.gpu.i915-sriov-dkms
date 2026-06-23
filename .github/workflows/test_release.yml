@@ -26,7 +26,7 @@ env:
   target_dkms_version: "2026.05.06"
   target_commit_sha: "d146e98a" #2026.05.06
   linux_firmware_commit_sha: "a3d046ca8eee45ff2d2eda129b495c686dd78040" #i915: Xe3LPD DMC v2.34
-  this_pack_manifest_version: "1.0.13"
+  this_pack_manifest_version: "1.0.14"
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -99,6 +99,12 @@ jobs:
           - kernel_name: "6.18.18-trim-717-amd64"
             kernel_ver: "6.18.18-trim"
             container_image: "makedie/fnos:kernHead-6.18.18-trim-717-amd64"
+            target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
+            target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
+            patch_mode: ""
+          - kernel_name: "6.18.18.c788-trim-amd64"
+            kernel_ver: "6.18.18.c788-trim"
+            container_image: "makedie/fnos:kernHead-6.18.18.c788-trim-amd64"
             target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
             target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
             patch_mode: ""
@@ -214,11 +220,14 @@ jobs:
       - name: 打包package
         run: |
           tar zcvf appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz i915-sriov-dkms_driver
+      - name: 修改包扩展名
+        run: |
+          mv appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz.fpk
       - name: 上传应用包
         uses: actions/upload-artifact@v6
         with:
-          name: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz
-          path: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz
+          name: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz.fpk
+          path: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz.fpk
       - name: Create GitHub Release
         if: ${{ inputs.make_release }}
         env:
@@ -236,8 +245,8 @@ jobs:
         run: |
           echo "Uploading release assets..."
 
-          echo "Uploading appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz"
-          gh release upload "${{ env.this_pack_manifest_version }}" "appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz" || echo "Failed to upload appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz"
+          echo "Uploading appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz.fpk"
+          gh release upload "${{ env.this_pack_manifest_version }}" "appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz.fpk" || echo "Failed to upload appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz.fpk"
 
           echo "Upload completed!"
 

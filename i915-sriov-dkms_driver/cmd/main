@@ -17,7 +17,7 @@ fi
 
 PACKAGE_BASE=${TRIM_APPDEST}
 
-supportKernelList=("6.12.5-trim" "6.12.18-trim" "6.18.6-trim" "6.18.18-trim")
+supportKernelList=("6.12.5-trim" "6.12.18-trim" "6.18.6-trim" "6.18.18-trim" "6.18.18.c788-trim")
 
 nowKernelVer=$(uname -r)
 nowKernelBuildNum=$(uname -v | grep -oP '(?<=#)\d+')
@@ -73,6 +73,12 @@ start)
 		else
 			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-717-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
 		fi
+		;;
+
+	6.18.18.c788-trim)
+		echo "debug 6.18.18.c788-trim"
+		mkdir -p /lib/modules/6.18.18.c788-trim/updates/dkms/i915-sriov-dkms
+		cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18.c788-trim-amd64/* /lib/modules/6.18.18.c788-trim/updates/dkms/i915-sriov-dkms/
 		;;
 
 	*) ;;
