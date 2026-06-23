@@ -11,6 +11,19 @@ print_pci() {
 	done
 }
 
+copy_kernel_module() {
+	local src_dir="$1"
+	local dst_dir="$2"
+
+	if [[ ! -d "${src_dir}" ]]; then
+		echo "error missing kernel module package: ${src_dir}" >&2
+		exit 1
+	fi
+
+	mkdir -p "${dst_dir}"
+	cp -rf "${src_dir}"/* "${dst_dir}/"
+}
+
 if [[ "$1" != "status" ]]; then
 	echo -e "$(date +'%Y/%m/%d %H:%M:%S')\t" $0 $*
 fi
@@ -44,41 +57,36 @@ start)
 		fi
 		if [[ ${nowKernelBuildNum} -ge 10 ]]; then
 			echo "debug 6.12.5-trim ge10"
-			mkdir -p /lib/modules/6.12.5-trim/updates/dkms/i915-sriov-dkms
-			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.5-trim_10/* /lib/modules/6.12.5-trim/updates/dkms/i915-sriov-dkms/
+			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.5-trim_10" "/lib/modules/6.12.5-trim/updates/dkms/i915-sriov-dkms"
 		fi
 		;;
 
 	6.12.18-trim)
 		echo "debug 6.12.18-trim"
-		mkdir -p /lib/modules/6.12.18-trim/updates/dkms/i915-sriov-dkms
-		cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.18-trim_3/* /lib/modules/6.12.18-trim/updates/dkms/i915-sriov-dkms/
+		copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.18-trim_3" "/lib/modules/6.12.18-trim/updates/dkms/i915-sriov-dkms"
 		;;
 
 	6.18.6-trim)
 		echo "debug 6.18.6-trim"
-		mkdir -p /lib/modules/6.18.6-trim/updates/dkms/i915-sriov-dkms
-		cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.6-trim-297-amd64/* /lib/modules/6.18.6-trim/updates/dkms/i915-sriov-dkms/
+		copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.6-trim-297-amd64" "/lib/modules/6.18.6-trim/updates/dkms/i915-sriov-dkms"
 		;;
 
 	6.18.18-trim)
 		echo "debug 6.18.18-trim"
-		mkdir -p /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms
 		if [[ ${nowKernelBuildNum} -lt 570 ]]; then
-			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-427-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
+			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-427-amd64" "/lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms"
 		elif [[ ${nowKernelBuildNum} -lt 587 ]]; then
-			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-570-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
+			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-570-amd64" "/lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms"
 		elif [[ ${nowKernelBuildNum} -lt 717 ]]; then
-			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-587-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
+			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-587-amd64" "/lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms"
 		else
-			cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-717-amd64/* /lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms/
+			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-717-amd64" "/lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms"
 		fi
 		;;
 
 	6.18.18.c788-trim)
 		echo "debug 6.18.18.c788-trim"
-		mkdir -p /lib/modules/6.18.18.c788-trim/updates/dkms/i915-sriov-dkms
-		cp -rf ${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18.c788-trim-amd64/* /lib/modules/6.18.18.c788-trim/updates/dkms/i915-sriov-dkms/
+		copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18.c788-trim-amd64" "/lib/modules/6.18.18.c788-trim/updates/dkms/i915-sriov-dkms"
 		;;
 
 	*) ;;

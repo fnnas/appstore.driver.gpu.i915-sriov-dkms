@@ -20,13 +20,18 @@ on:
         required: true
         type: boolean
         default: true
+      build_pre_6_18_18_kernels:
+        description: '是否构建 6.18.18 前版本的内核模块？'
+        required: true
+        type: boolean
+        default: false
 
 env:
   proj_name: "i915-sriov-dkms"
   target_dkms_version: "2026.05.06"
   target_commit_sha: "d146e98a" #2026.05.06
   linux_firmware_commit_sha: "a3d046ca8eee45ff2d2eda129b495c686dd78040" #i915: Xe3LPD DMC v2.34
-  this_pack_manifest_version: "1.0.14"
+  this_pack_manifest_version: "1.0.15"
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -45,7 +50,8 @@ jobs:
     with:
       proj_name: ${{ needs.setup.outputs.proj_name }}
       linux_firmware_commit_sha: ${{ needs.setup.outputs.linux_firmware_commit_sha }}
-  build_kernel:
+  build_legacy_kernel:
+    if: ${{ inputs.build_pre_6_18_18_kernels }}
     uses: ./.github/workflows/kernel-build.yml
     secrets: inherit
     needs:
@@ -78,6 +84,25 @@ jobs:
             target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
             target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
             patch_mode: ""
+    with:
+      proj_name: ${{ needs.setup.outputs.proj_name }}
+      target_commit_sha: ${{ matrix.target_commit_sha }}
+      target_dkms_version: ${{ matrix.target_dkms_version }}
+      kernel_name: ${{ matrix.kernel_name }}
+      kernel_ver: ${{ matrix.kernel_ver }}
+      container_image: ${{ matrix.container_image }}
+      patch_mode: ${{ matrix.patch_mode }}
+      enable_ccache: ${{ inputs.enable_ccache }}
+
+  build_kernel:
+    uses: ./.github/workflows/kernel-build.yml
+    secrets: inherit
+    needs:
+      - setup
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - kernel_name: "6.18.18-trim-427-amd64"
             kernel_ver: "6.18.18-trim"
             container_image: "makedie/fnos:kernHead-6.18.18-trim-427-amd64"
@@ -121,6 +146,7 @@ jobs:
   prune_ccache:
     if: ${{ always() && inputs.enable_ccache }}
     needs:
+      - build_legacy_kernel
       - build_kernel
     runs-on: ubuntu-latest
     permissions:
@@ -187,8 +213,10 @@ jobs:
           done < "$delete_file"
 
   pack_app_tgz:
+    if: ${{ always() && needs.get_firmware.result == 'success' && needs.build_kernel.result == 'success' && (!inputs.build_pre_6_18_18_kernels || needs.build_legacy_kernel.result == 'success') }}
     needs:
       - get_firmware
+      - build_legacy_kernel
       - build_kernel
     runs-on: ubuntu-latest
     steps:
@@ -233,10 +261,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          {
+            echo "## 构建选项"
+            echo
+            echo "- make_release: ${{ inputs.make_release }}"
+            echo "- enable_ccache: ${{ inputs.enable_ccache }}"
+            echo "- build_pre_6_18_18_kernels: ${{ inputs.build_pre_6_18_18_kernels }}"
+            echo
+            echo "## 最新提交"
+            echo
+            git log -1 --pretty=%B
+          } > release_notes.md
           gh release create "${{ env.this_pack_manifest_version }}" \
             --title "fnnas.appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}" \
             --prerelease \
-            --notes "Automated prerelease build."
+            --notes-file release_notes.md
 
       - name: Upload Release Assets
         if: ${{ inputs.make_release }}
