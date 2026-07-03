@@ -11,17 +11,36 @@ print_pci() {
 	done
 }
 
+fail() {
+	local message="$*"
+
+	echo "error: ${message}" >&2
+	if [[ -n "${TRIM_TEMP_LOGFILE:-}" ]]; then
+		printf '%s\t%s\n' "$(date +'%Y/%m/%d %H:%M:%S')" "${message}" >> "${TRIM_TEMP_LOGFILE}" 2>/dev/null || true
+	fi
+	exit 1
+}
+
+require_kernel_build_num() {
+	if [[ ! "${nowKernelBuildNum}" =~ ^[0-9]+$ ]]; then
+		fail "Unable to detect the current kernel build number: $(uname -v). Please include this log when reporting the issue."
+	fi
+}
+
 copy_kernel_module() {
 	local src_dir="$1"
 	local dst_dir="$2"
 
 	if [[ ! -d "${src_dir}" ]]; then
-		echo "error missing kernel module package: ${src_dir}" >&2
-		exit 1
+		fail "Missing driver module package for the current kernel: ${src_dir}. Please verify that the installation package is complete, or download it again and reinstall."
 	fi
 
-	mkdir -p "${dst_dir}"
-	cp -rf "${src_dir}"/* "${dst_dir}/"
+	if ! compgen -G "${src_dir}/*" >/dev/null; then
+		fail "The driver module package for the current kernel is empty: ${src_dir}. Please verify that the installation package is complete, or download it again and reinstall."
+	fi
+
+	mkdir -p "${dst_dir}" || fail "Failed to create the kernel module directory: ${dst_dir}."
+	cp -rf "${src_dir}/." "${dst_dir}/" || fail "Failed to copy kernel modules: ${src_dir} -> ${dst_dir}."
 }
 
 if [[ "$1" != "status" ]]; then
@@ -40,20 +59,25 @@ start)
 	echo "$(uname -a)"
 	echo "kernel_inf ${nowKernelVer} ${nowKernelBuildNum}"
 
+	if [[ -z "${PACKAGE_BASE}" ]]; then
+		fail "Missing environment variable TRIM_APPDEST. Unable to locate the application installation directory."
+	fi
+
 	if [[ " ${supportKernelList[@]} " =~ " ${nowKernelVer} " ]]; then
 		echo "${nowKernelVer} in supportKernelList"
 	else
 		echo "${nowKernelVer} not in supportKernelList"
-		exit 1
+		fail "The current kernel ${nowKernelVer} is not supported. Supported kernels: ${supportKernelList[*]}."
 	fi
 
 
 	case "$nowKernelVer" in
 
 	6.12.5-trim)
+		require_kernel_build_num
 		if [[ ${nowKernelBuildNum} -le 9 ]]; then
 			echo "debug 6.12.5-trim le9 not support"
-			exit 1
+			fail "The current kernel ${nowKernelVer} build #${nowKernelBuildNum} is not supported. Please upgrade to 6.12.5-trim build #10 or newer before installing."
 		fi
 		if [[ ${nowKernelBuildNum} -ge 10 ]]; then
 			echo "debug 6.12.5-trim ge10"
@@ -73,6 +97,7 @@ start)
 
 	6.18.18-trim)
 		echo "debug 6.18.18-trim"
+		require_kernel_build_num
 		if [[ ${nowKernelBuildNum} -lt 570 ]]; then
 			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-427-amd64" "/lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms"
 		elif [[ ${nowKernelBuildNum} -lt 587 ]]; then
@@ -97,18 +122,22 @@ start)
 	*) ;;
 	esac
 
-	cp -nv ${PACKAGE_BASE}/app/firmware/* /usr/lib/firmware/i915/
+	if ! compgen -G "${PACKAGE_BASE}/app/firmware/*" >/dev/null; then
+		fail "Missing i915 firmware files: ${PACKAGE_BASE}/app/firmware. Please verify that the installation package is complete, or download it again and reinstall."
+	fi
+	mkdir -p /usr/lib/firmware/i915 || fail "Failed to create the firmware directory: /usr/lib/firmware/i915."
+	cp -nv "${PACKAGE_BASE}"/app/firmware/* /usr/lib/firmware/i915/ || fail "Failed to copy i915 firmware files."
 	echo "firmware list"
 	ls -al /usr/lib/firmware/i915/
 	md5sum /usr/lib/firmware/i915/*
 
 	echo "depmod："
-	depmod
+	depmod || fail "depmod failed. Kernel module dependencies were not updated."
 	if grub-mkconfig -o /dev/null;then
 		echo "update-initramfs -u"
-		update-initramfs -u
+		update-initramfs -u || fail "update-initramfs failed. The initramfs was not updated."
 	else
-	  echo "grub file with error"
+		fail "grub configuration validation failed. update-initramfs was not run. Please check the grub configuration and try again."
 	fi
 
 	for mod in i915 kvmgt; do
@@ -143,6 +172,6 @@ status)
 	fi
 	;;
 *)
-	exit 1
+	fail "Unknown command: $1"
 	;;
 esac
