@@ -31,7 +31,7 @@ env:
   target_dkms_version: "2026.05.06"
   target_commit_sha: "da4be60f" #2026.05.06
   linux_firmware_commit_sha: "a3d046ca8eee45ff2d2eda129b495c686dd78040" #i915: Xe3LPD DMC v2.34
-  this_pack_manifest_version: "1.0.17"
+  this_pack_manifest_version: "1.0.18"
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -245,6 +245,20 @@ jobs:
           pattern: ${{ env.proj_name }}-6*
           path: app/app/
           merge-multiple: true
+
+      - name: Stage driver source for optional local builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_checkout="$(mktemp -d)"
+          trap 'rm -rf -- "$source_checkout"' EXIT
+
+          git clone --quiet --filter=blob:none --no-checkout \
+            https://github.com/GreenDamTan/i915-sriov-dkms.git "$source_checkout"
+          mkdir -p app/app/i915-sriov-dkms-source
+          git -C "$source_checkout" archive --format=tar "${{ env.target_commit_sha }}" | \
+            tar -x -C app/app/i915-sriov-dkms-source
+          printf '%s\n' "${{ env.target_commit_sha }}" > app/app/i915-sriov-dkms-source/VERSION
 
       - name: Replace manifest build-time values
         run: |

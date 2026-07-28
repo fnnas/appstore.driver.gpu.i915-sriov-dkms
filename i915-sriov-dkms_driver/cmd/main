@@ -1,4 +1,10 @@
 #!/bin/bash
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+PACKAGE_BASE=${TRIM_APPDEST:-}
+MODULE_ROOT=${MODULE_ROOT:-/lib/modules}
+CHROOT_BUILD_SCRIPT=${CHROOT_BUILD_SCRIPT:-${SCRIPT_DIR}/build_module_chroot}
+CHROOT_BUILD_LOCK=${CHROOT_BUILD_LOCK:-/tmp/i915-sriov-dkms-chroot-build.lock}
+
 print_pci() {
 	gpu_addrs=$(lspci -Dn | awk '$2 ~ /^03/ {print $1}')
 	if [[ -z "$gpu_addrs" ]]; then
@@ -21,10 +27,40 @@ fail() {
 	exit 1
 }
 
+reset_user_visible_log() {
+	if [[ -n "${TRIM_TEMP_LOGFILE:-}" ]]; then
+		: > "${TRIM_TEMP_LOGFILE}"
+	fi
+}
+
+run_with_user_visible_log() {
+	local command_status
+
+	if [[ -z "${TRIM_TEMP_LOGFILE:-}" ]]; then
+		"$@"
+		return $?
+	fi
+
+	"$@" 2>&1 | tee -a "${TRIM_TEMP_LOGFILE}"
+	command_status=${PIPESTATUS[0]}
+	return "${command_status}"
+}
+
 require_kernel_build_num() {
 	if [[ ! "${nowKernelBuildNum}" =~ ^[0-9]+$ ]]; then
 		fail "Unable to detect the current kernel build number: $(uname -v). Please include this log when reporting the issue."
 	fi
+}
+
+module_payload_exists() {
+	local src_dir="$1"
+	local compression_suffix
+
+	[[ -d "${src_dir}" ]] || return 1
+	for compression_suffix in "" .xz .zst .gz; do
+		[[ -f "${src_dir}/i915.ko${compression_suffix}" ]] && return 0
+	done
+	return 1
 }
 
 copy_kernel_module() {
@@ -35,27 +71,121 @@ copy_kernel_module() {
 		fail "Missing driver module package for the current kernel: ${src_dir}. Please verify that the installation package is complete, or download it again and reinstall."
 	fi
 
-	if ! compgen -G "${src_dir}/*" >/dev/null; then
-		fail "The driver module package for the current kernel is empty: ${src_dir}. Please verify that the installation package is complete, or download it again and reinstall."
+	if ! module_payload_exists "${src_dir}"; then
+		fail "No prebuilt kernel modules were found for the current kernel in: ${src_dir}."
 	fi
 
 	mkdir -p "${dst_dir}" || fail "Failed to create the kernel module directory: ${dst_dir}."
 	cp -rf "${src_dir}/." "${dst_dir}/" || fail "Failed to copy kernel modules: ${src_dir} -> ${dst_dir}."
 }
 
+local_build_allowed() {
+	[[ "${wizard_module_install_mode:-prebuilt_only}" == "allow_local_build" ]]
+}
+
+acquire_local_build_lock() {
+	local kernel_ver="$1"
+
+	if [[ -e "${CHROOT_BUILD_LOCK}" || -L "${CHROOT_BUILD_LOCK}" ]]; then
+		fail "A local chroot build is already running, or a previous build failed or was interrupted. Automatic retry is disabled. Reboot the system or remove ${CHROOT_BUILD_LOCK} manually before trying again."
+	fi
+
+	if ! (
+		set -o noclobber
+		printf 'kernel=%s\nstarted_at=%s\npid=%s\n' \
+			"${kernel_ver}" "$(date +'%Y/%m/%d %H:%M:%S')" "$$" > "${CHROOT_BUILD_LOCK}"
+	) 2>/dev/null; then
+		fail "Unable to create the local chroot build lock: ${CHROOT_BUILD_LOCK}. Another build may already be running."
+	fi
+}
+
+release_local_build_lock() {
+	if ! rm -f -- "${CHROOT_BUILD_LOCK}"; then
+		echo "warning: Failed to remove the local chroot build lock: ${CHROOT_BUILD_LOCK}" >&2
+	fi
+}
+
+select_kernel_module_payload() {
+	local kernel_ver="$1"
+
+	case "${kernel_ver}" in
+	6.12.5-trim)
+		require_kernel_build_num
+		if [[ ${nowKernelBuildNum} -le 9 ]]; then
+			fail "The current kernel ${nowKernelVer} build #${nowKernelBuildNum} is not supported. Please upgrade to 6.12.5-trim build #10 or newer before installing."
+		fi
+		MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.12.5-trim_10"
+		;;
+	6.12.18-trim)
+		MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.12.18-trim_3"
+		;;
+	6.18.6-trim)
+		MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.18.6-trim-297-amd64"
+		;;
+	6.18.18-trim)
+		require_kernel_build_num
+		if [[ ${nowKernelBuildNum} -lt 570 ]]; then
+			MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.18.18-trim-427-amd64"
+		elif [[ ${nowKernelBuildNum} -lt 587 ]]; then
+			MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.18.18-trim-570-amd64"
+		elif [[ ${nowKernelBuildNum} -lt 717 ]]; then
+			MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.18.18-trim-587-amd64"
+		else
+			MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.18.18-trim-717-amd64"
+		fi
+		;;
+	6.18.18.c788-trim)
+		MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.18.18.c788-trim-amd64"
+		;;
+	6.18.18.c877-trim)
+		MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.18.18.c877-trim-amd64"
+		;;
+	6.18.18.c938-trim)
+		MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.18.18.c938-trim-amd64"
+		;;
+	*)
+		MODULE_PAYLOAD_DIR="i915-sriov-dkms_${kernel_ver}"
+		;;
+	esac
+}
+
+build_kernel_module_payload() {
+	local kernel_ver="$1"
+	local payload_dir="$2"
+	local source_dir="${PACKAGE_BASE}/app/i915-sriov-dkms-source"
+	local output_dir="${PACKAGE_BASE}/app/${payload_dir}"
+
+	if [[ ! -f "${source_dir}/dkms.conf" ]]; then
+		fail "The packaged i915-sriov-dkms source code is missing; the chroot fallback build cannot start."
+	fi
+
+	if [[ ! -f "${CHROOT_BUILD_SCRIPT}" ]]; then
+		fail "The chroot build script is missing: ${CHROOT_BUILD_SCRIPT}."
+	fi
+
+	acquire_local_build_lock "${kernel_ver}"
+	echo "No prebuilt i915-sriov-dkms modules were found for ${kernel_ver}; starting the requested chroot fallback build."
+	if ! run_with_user_visible_log bash "${CHROOT_BUILD_SCRIPT}" "${kernel_ver}" "${output_dir}"; then
+		fail "Failed to build i915-sriov-dkms modules for kernel ${kernel_ver} in chroot."
+	fi
+
+	if ! module_payload_exists "${output_dir}"; then
+		fail "The chroot build completed without producing kernel modules for ${kernel_ver}."
+	fi
+
+	release_local_build_lock
+}
+
 if [[ "$1" != "status" ]]; then
 	echo -e "$(date +'%Y/%m/%d %H:%M:%S')\t" $0 $*
 fi
-
-PACKAGE_BASE=${TRIM_APPDEST}
-
-supportKernelList=("6.12.5-trim" "6.12.18-trim" "6.18.6-trim" "6.18.18-trim" "6.18.18.c788-trim" "6.18.18.c877-trim" "6.18.18.c938-trim")
 
 nowKernelVer=$(uname -r)
 nowKernelBuildNum=$(uname -v | grep -oP '(?<=#)\d+')
 
 case $1 in
 start)
+	reset_user_visible_log
 	echo "$(uname -a)"
 	echo "kernel_inf ${nowKernelVer} ${nowKernelBuildNum}"
 
@@ -63,69 +193,25 @@ start)
 		fail "Missing environment variable TRIM_APPDEST. Unable to locate the application installation directory."
 	fi
 
-	if [[ " ${supportKernelList[@]} " =~ " ${nowKernelVer} " ]]; then
-		echo "${nowKernelVer} in supportKernelList"
-	else
-		echo "${nowKernelVer} not in supportKernelList"
-		fail "The current kernel ${nowKernelVer} is not supported. Supported kernels: ${supportKernelList[*]}."
+	select_kernel_module_payload "${nowKernelVer}"
+	payload_dir="${MODULE_PAYLOAD_DIR}"
+	payload_path="${PACKAGE_BASE}/app/${payload_dir}"
+	kernel_named_payload_dir="i915-sriov-dkms_${nowKernelVer}"
+	kernel_named_payload_path="${PACKAGE_BASE}/app/${kernel_named_payload_dir}"
+
+	if ! module_payload_exists "${payload_path}" && module_payload_exists "${kernel_named_payload_path}"; then
+		echo "Using the existing kernel-named module payload: ${kernel_named_payload_path}"
+		payload_dir="${kernel_named_payload_dir}"
+		payload_path="${kernel_named_payload_path}"
 	fi
 
+	if ! module_payload_exists "${payload_path}" && local_build_allowed; then
+		payload_dir="${kernel_named_payload_dir}"
+		payload_path="${kernel_named_payload_path}"
+		build_kernel_module_payload "${nowKernelVer}" "${payload_dir}"
+	fi
 
-	case "$nowKernelVer" in
-
-	6.12.5-trim)
-		require_kernel_build_num
-		if [[ ${nowKernelBuildNum} -le 9 ]]; then
-			echo "debug 6.12.5-trim le9 not support"
-			fail "The current kernel ${nowKernelVer} build #${nowKernelBuildNum} is not supported. Please upgrade to 6.12.5-trim build #10 or newer before installing."
-		fi
-		if [[ ${nowKernelBuildNum} -ge 10 ]]; then
-			echo "debug 6.12.5-trim ge10"
-			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.5-trim_10" "/lib/modules/6.12.5-trim/updates/dkms/i915-sriov-dkms"
-		fi
-		;;
-
-	6.12.18-trim)
-		echo "debug 6.12.18-trim"
-		copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.12.18-trim_3" "/lib/modules/6.12.18-trim/updates/dkms/i915-sriov-dkms"
-		;;
-
-	6.18.6-trim)
-		echo "debug 6.18.6-trim"
-		copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.6-trim-297-amd64" "/lib/modules/6.18.6-trim/updates/dkms/i915-sriov-dkms"
-		;;
-
-	6.18.18-trim)
-		echo "debug 6.18.18-trim"
-		require_kernel_build_num
-		if [[ ${nowKernelBuildNum} -lt 570 ]]; then
-			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-427-amd64" "/lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms"
-		elif [[ ${nowKernelBuildNum} -lt 587 ]]; then
-			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-570-amd64" "/lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms"
-		elif [[ ${nowKernelBuildNum} -lt 717 ]]; then
-			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-587-amd64" "/lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms"
-		else
-			copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18-trim-717-amd64" "/lib/modules/6.18.18-trim/updates/dkms/i915-sriov-dkms"
-		fi
-		;;
-
-	6.18.18.c788-trim)
-		echo "debug 6.18.18.c788-trim"
-		copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18.c788-trim-amd64" "/lib/modules/6.18.18.c788-trim/updates/dkms/i915-sriov-dkms"
-		;;
-
-	6.18.18.c877-trim)
-		echo "debug 6.18.18.c877-trim"
-		copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18.c877-trim-amd64" "/lib/modules/6.18.18.c877-trim/updates/dkms/i915-sriov-dkms"
-		;;
-
-	6.18.18.c938-trim)
-		echo "debug 6.18.18.c938-trim"
-		copy_kernel_module "${PACKAGE_BASE}/app/i915-sriov-dkms_6.18.18.c938-trim-amd64" "/lib/modules/6.18.18.c938-trim/updates/dkms/i915-sriov-dkms"
-		;;
-
-	*) ;;
-	esac
+	copy_kernel_module "${payload_path}" "${MODULE_ROOT}/${nowKernelVer}/updates/dkms/i915-sriov-dkms"
 
 	if ! compgen -G "${PACKAGE_BASE}/app/firmware/*" >/dev/null; then
 		fail "Missing i915 firmware files: ${PACKAGE_BASE}/app/firmware. Please verify that the installation package is complete, or download it again and reinstall."
@@ -169,7 +255,7 @@ start)
 stop) ;;
 
 status)
-	if [ ! -d "/lib/modules/$(uname -r)/updates/dkms/i915-sriov-dkms" ]; then
+	if [ ! -d "${MODULE_ROOT}/$(uname -r)/updates/dkms/i915-sriov-dkms" ]; then
 		echo -e "$(date +'%Y/%m/%d %H:%M:%S')\t" $0 $*
 		echo "dmesg $(uptime)"
 		dmesg | grep i915 | grep -v '0x550b failed' | grep -v 'state (-EPROTO)'

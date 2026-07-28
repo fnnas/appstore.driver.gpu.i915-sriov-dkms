@@ -1,0 +1,27 @@
+[
+  {
+    "stepTitle": "${wizard.install_step_title}",
+    "items": [
+      {
+        "type": "radio",
+        "field": "wizard_module_install_mode",
+        "label": "${wizard.install_mode_label}",
+        "initValue": "prebuilt_only",
+        "options": [
+          {
+            "label": "${wizard.prebuilt_only_label}",
+            "value": "prebuilt_only"
+          },
+          {
+            "label": "${wizard.allow_local_build_label}",
+            "value": "allow_local_build"
+          }
+        ]
+      },
+      {
+        "type": "tips",
+        "helpText": "${wizard.local_build_warning}"
+      }
+    ]
+  }
+]

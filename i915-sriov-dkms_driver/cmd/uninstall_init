@@ -1,5 +1,7 @@
 #!/bin/bash
 echo -e "$(date +'%Y/%m/%d %H:%M:%S')\t" $0 $*
+CHROOT_BUILD_LOCK=${CHROOT_BUILD_LOCK:-/tmp/i915-sriov-dkms-chroot-build.lock}
+rm -f -- "${CHROOT_BUILD_LOCK}"
 rm -rf /lib/modules/*/updates/dkms/i915-sriov-dkms
 echo "depmod：`depmod`"
 echo "modprobe -D"

@@ -1,0 +1,6 @@
+[wizard]
+install_step_title="Kernel module installation"
+install_mode_label="Choose an installation method"
+prebuilt_only_label="Use prebuilt modules only (recommended)"
+allow_local_build_label="Allow a local build when missing (high risk)"
+local_build_warning="<strong>Warning: We strongly recommend using prebuilt modules only and waiting for a release that supports your kernel.</strong><br><br>Local builds are intended only for advanced users who can diagnose and accept kernel-driver risks. Build time depends on the system configuration; closely monitor system resource usage while compilation is running. Compilation may saturate CPU, memory, and disk I/O for an extended period, causing severe slowdowns, interrupted services, or an unresponsive system.<br><br>The resulting module has not been pre-validated and may fail to load or destabilize the system, potentially requiring a restart."

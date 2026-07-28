@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+kernel_ver=${1:?Kernel version is required}
+output_dir=${2:?Output directory is required}
+source_dir="${TRIM_APPDEST:?TRIM_APPDEST is required}/app/i915-sriov-dkms-source"
+work_dir="${TRIM_PKGVAR:-/tmp}/i915-sriov-dkms-chroot.$$"
+root_dir="${work_dir}/root"
+
+cleanup() {
+    local status=$?
+
+    trap - EXIT
+    set +e
+    umount -l "${root_dir}/proc" 2>/dev/null
+    umount -l "${root_dir}/dev" 2>/dev/null
+    umount -l "$root_dir" 2>/dev/null
+    rm -rf -- "$work_dir"
+    exit "$status"
+}
+trap cleanup EXIT
+
+mkdir -p "${work_dir}/upper" "${work_dir}/work" "$root_dir"
+mount -t overlay overlay \
+    -o "lowerdir=/,upperdir=${work_dir}/upper,workdir=${work_dir}/work" \
+    "$root_dir"
+mount --bind /dev "${root_dir}/dev"
+mount -t proc proc "${root_dir}/proc"
+
+rm -f "${root_dir}/etc/resolv.conf"
+cp -L /etc/resolv.conf "${root_dir}/etc/resolv.conf"
+
+echo "Building i915-sriov-dkms for ${kernel_ver} inside chroot..."
+chroot "$root_dir" /bin/bash -s -- "$source_dir" "$kernel_ver" <<'CHROOT_BUILD'
+set -euo pipefail
+source_dir=$1
+kernel_ver=$2
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends \
+    bc \
+    bison \
+    build-essential \
+    dkms \
+    flex \
+    libelf-dev \
+    libssl-dev
+
+kernel_build_dir="/lib/modules/${kernel_ver}/build"
+kernel_config="/boot/config-${kernel_ver}"
+if [[ -d "$kernel_build_dir" && ! -f "${kernel_build_dir}/.config" ]]; then
+    if [[ -f "$kernel_config" ]]; then
+        cp -f "$kernel_config" "${kernel_build_dir}/.config"
+        echo "Staged kernel config from ${kernel_config}"
+    else
+        echo "Warning: neither ${kernel_build_dir}/.config nor ${kernel_config} exists" >&2
+    fi
+fi
+
+package_name=$(sed -n 's/^PACKAGE_NAME="\([^"]*\)"/\1/p' "$source_dir/dkms.conf" | head -n 1)
+package_version=$(sed -n 's/^PACKAGE_VERSION="\([^"]*\)"/\1/p' "$source_dir/dkms.conf" | head -n 1)
+
+if [[ -z "$package_name" || -z "$package_version" ]]; then
+    echo "Unable to read PACKAGE_NAME or PACKAGE_VERSION from ${source_dir}/dkms.conf" >&2
+    exit 1
+fi
+
+run_dkms_install_with_live_log() {
+    local make_log="/var/lib/dkms/${package_name}/${package_version}/build/make.log"
+    local dkms_pid
+    local dkms_status
+    local tail_pid
+
+    rm -f "$make_log"
+    dkms install "$package_name/$package_version" -k "$kernel_ver" --verbose --force &
+    dkms_pid=$!
+
+    echo "Streaming DKMS build log: ${make_log}"
+    tail -n +1 -F --pid="$dkms_pid" "$make_log" 2>/dev/null &
+    tail_pid=$!
+
+    if wait "$dkms_pid"; then
+        dkms_status=0
+    else
+        dkms_status=$?
+    fi
+
+    wait "$tail_pid" || true
+
+    return "$dkms_status"
+}
+
+if dkms status -m "$package_name" -v "$package_version" | grep -q .; then
+    echo "Replacing the existing DKMS registration for ${package_name}/${package_version} inside the chroot."
+    dkms remove "$package_name/$package_version" --all
+fi
+
+dkms add "$source_dir"
+run_dkms_install_with_live_log
+CHROOT_BUILD
+
+module_dir="${root_dir}/lib/modules/${kernel_ver}/updates/dkms"
+mapfile -t module_names < <(sed -n 's/^BUILT_MODULE_NAME\[[0-9][0-9]*\]="\([^"]*\)"/\1/p' "${source_dir}/dkms.conf")
+module_files=()
+
+find_installed_module() {
+    local module_name=$1
+    local compression_suffix
+    local module_file
+
+    for compression_suffix in "" .xz .zst .gz; do
+        module_file="${module_dir}/${module_name}.ko${compression_suffix}"
+        if [[ -f "$module_file" ]]; then
+            printf '%s\n' "$module_file"
+            return 0
+        fi
+    done
+    return 1
+}
+
+if [[ ${#module_names[@]} -eq 0 ]]; then
+    echo "No BUILT_MODULE_NAME entries were found in ${source_dir}/dkms.conf" >&2
+    exit 1
+fi
+
+for module_name in "${module_names[@]}"; do
+    if ! module_file=$(find_installed_module "$module_name"); then
+        echo "The DKMS build did not install ${module_name}.ko in ${module_dir}" >&2
+        exit 1
+    fi
+    module_files+=("$module_file")
+done
+
+mkdir -p "$output_dir"
+cp -f -- "${module_files[@]}" "$output_dir/"
+echo "Stored the compiled modules in ${output_dir}"
