@@ -31,7 +31,7 @@ env:
   target_dkms_version: "2026.05.06"
   target_commit_sha: "da4be60f" #2026.05.06
   linux_firmware_commit_sha: "a3d046ca8eee45ff2d2eda129b495c686dd78040" #i915: Xe3LPD DMC v2.34
-  this_pack_manifest_version: "1.0.18"
+  this_pack_manifest_version: "1.0.19"
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -142,6 +142,12 @@ jobs:
           - kernel_name: "6.18.18.c938-trim-amd64"
             kernel_ver: "6.18.18.c938-trim"
             container_image: "makedie/fnos:kernHead-6.18.18.c938-trim-amd64"
+            target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
+            target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
+            patch_mode: ""
+          - kernel_name: "6.18.18.c952-trim-amd64"
+            kernel_ver: "6.18.18.c952-trim"
+            container_image: "makedie/fnos:kernHead-6.18.18.c952-trim-amd64"
             target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
             target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
             patch_mode: ""
@@ -299,7 +305,7 @@ jobs:
             git log -1 --pretty=%B
           } > release_notes.md
           gh release create "${{ env.this_pack_manifest_version }}" \
-            --title "fnnas.appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}" \
+            --title "i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}" \
             --prerelease \
             --notes-file release_notes.md
 

@@ -143,6 +143,9 @@ select_kernel_module_payload() {
 	6.18.18.c938-trim)
 		MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.18.18.c938-trim-amd64"
 		;;
+	6.18.18.c952-trim)
+		MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.18.18.c952-trim-amd64"
+		;;
 	*)
 		MODULE_PAYLOAD_DIR="i915-sriov-dkms_${kernel_ver}"
 		;;
