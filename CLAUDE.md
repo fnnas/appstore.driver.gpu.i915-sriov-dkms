@@ -13,14 +13,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 仓库没有配置单元测试框架或专用 lint 配置。修改 `i915-sriov-dkms_driver/cmd/*` 后，至少运行 Bash 语法检查：
 
 ```bash
-bash -n i915-sriov-dkms_driver/cmd/main \
-  i915-sriov-dkms_driver/cmd/build_module_chroot \
-  i915-sriov-dkms_driver/cmd/install_init \
-  i915-sriov-dkms_driver/cmd/install_callback \
-  i915-sriov-dkms_driver/cmd/uninstall_init \
-  i915-sriov-dkms_driver/cmd/uninstall_callback \
-  i915-sriov-dkms_driver/cmd/upgrade_init \
-  i915-sriov-dkms_driver/cmd/upgrade_callback
+for script in i915-sriov-dkms_driver/cmd/*; do
+  bash -n "$script" || exit 1
+done
 ```
 
 检查单个脚本时，例如：
@@ -46,7 +41,7 @@ tar tzf appstore.driver.gpu.i915-sriov-dkms-<版本>-<DKMS提交>.tgz
 
 ### CI 构建与发布
 
-主入口工作流是 `.github/workflows/test_release.yml`，通过 `workflow_dispatch` 触发。它会始终构建 `6.18.18` 系列内核产物；`build_pre_6_18_18_kernels=true` 时才额外构建旧内核矩阵。工作流还会获取 firmware、暂存上游 DKMS 源码，并组装 `app.tgz` 和最终外层包。`make_release=false` 只上传 artifact，不创建 GitHub Release。`enable_ccache` 默认开启；传 `false` 时会跳过 ccache 的恢复、安装、统计和保存步骤。
+主入口工作流是 `.github/workflows/test_release.yml`，通过 `workflow_dispatch` 触发。默认仅构建版本号带 `.c数字` 的当前内核；所有不带该后缀的内核均归档到已放弃支持的旧内核矩阵，仅在 `build_old_kernels=true` 时额外构建。工作流还会获取 firmware、暂存上游 DKMS 源码，并组装 `app.tgz` 和最终外层包。`make_release=false` 只上传 artifact，不创建 GitHub Release。`enable_ccache` 默认开启；传 `false` 时会跳过 ccache 的恢复、安装、统计和保存步骤。
 
 ```bash
 gh workflow run test_release.yml -f make_release=false
@@ -71,7 +66,7 @@ gh workflow run test_release.yml -f make_release=true
 
 `i915-sriov-dkms_driver/manifest` 中的 `arch` 是飞牛已废弃字段，按文档固定保留为 `x86_64`；`platform` 是当前架构声明字段，本项目为 x86 应用，固定为 `x86`。
 
-`.github/workflows/kernel-build.yml` 是唯一的内核构建 reusable workflow。`test_release.yml` 中的 `build_kernel` 保存默认构建的 `6.18.18` 系列矩阵，`build_legacy_kernel` 保存由 `build_pre_6_18_18_kernels` 控制的旧内核矩阵。每个条目都要完整声明 `container_image`、`kernel_name`、`kernel_ver`、`target_commit_sha`、`target_dkms_version` 和 `patch_mode`。旧内核的固定提交、固定 DKMS 版本，以及 `6.6.38` 的 `legacy_6_6_38` patch 模式应保留在旧内核矩阵中。
+`.github/workflows/kernel-build.yml` 是唯一的内核构建 reusable workflow。`test_release.yml` 中的 `build_kernel` 保存默认构建的 `.c数字` 当前内核矩阵，`build_old_kernels` 保存由同名输入控制的旧内核矩阵，包括 `6.18.18-trim` 的 `427`、`570`、`587`、`717` 及更早内核。每个条目都要完整声明 `container_image`、`kernel_name`、`kernel_ver`、`target_commit_sha`、`target_dkms_version` 和 `patch_mode`。旧内核的固定提交、固定 DKMS 版本，以及 `6.6.38` 的 `legacy_6_6_38` patch 模式应保留在旧内核矩阵中。
 
 `kernel-build.yml` 在 `makedie/fnos:kernHead-...` 容器中克隆 DKMS 源码、检出矩阵传入的提交、按需应用旧内核 patch、执行 DKMS 构建，然后把 `/lib/modules/<kernel>/updates/dkms/*` 复制成 artifact。`test_release.yml` 的 `workflow_dispatch` 提供中文布尔输入 `enable_ccache`，默认开启；关闭时会跳过 ccache 的恢复、安装、统计和保存步骤。开启时，每个内核矩阵项会使用独立的 ccache 目录，并显式执行 restore/save：恢复时按 `kernel_name` 维度尽量复用最近缓存，保存时用当前 workflow run 的唯一 key 回写新缓存。编译器 wrapper 会按 PATH 自动发现 `gcc`、`g++`、`cc`、`c++` 以及任意 triplet 前缀的 `*-gcc` / `*-g++`，不写死 `x86_64-linux-gnu-*`。artifact 名称由 `${proj_name}-${kernel_name}` 合成，artifact 内部目录由 `${proj_name}_${kernel_name}` 合成；这些命名规则必须和 `cmd/main` 的运行时路径保持一致。
 
@@ -85,7 +80,7 @@ gh workflow run test_release.yml -f make_release=true
 
 ## 运行时安装架构
 
-`i915-sriov-dkms_driver/manifest` 定义飞牛应用商店元数据、版本、显示名、维护者、最低系统版本、安装类型和描述。`config/privilege` 指定默认以 root 运行；`config/resource` 当前只声明空的 `systemd-unit` 配置。
+`i915-sriov-dkms_driver/manifest` 定义飞牛应用商店元数据、版本、显示名、维护者、最低系统版本和安装类型，显示名、描述和更新日志通过 `${manifest.key}` 引用中英文语言资源。`config/privilege` 指定默认以 root 运行；`config/resource` 当前只声明空的 `systemd-unit` 配置。
 
 `i915-sriov-dkms_driver/cmd/main` 是运行时核心脚本：
 
@@ -102,7 +97,7 @@ gh workflow run test_release.yml -f make_release=true
 
 ## 支持内核与产物映射
 
-运行时选择逻辑以 `cmd/main` 为准：
+默认打包的当前内核为带 `.c数字` 后缀的版本；不带该后缀的内核已放弃支持，仅保留可选归档构建和现有运行时映射。运行时选择逻辑以 `cmd/main` 为准：
 
 - `6.12.5-trim`：构建号小于等于 9 不支持；构建号大于等于 10 时使用 `app/i915-sriov-dkms_6.12.5-trim_10/`。
 - `6.12.18-trim`：使用 `app/i915-sriov-dkms_6.12.18-trim_3/`。
@@ -111,13 +106,21 @@ gh workflow run test_release.yml -f make_release=true
 - 显式列出的 `6.18.18.cXXX-trim` 内核使用同版本的 `i915-sriov-dkms_6.18.18.cXXX-trim-amd64/` 产物；准确列表以 `cmd/main` 和 `build_kernel` 矩阵为准。
 - 其他内核默认查找 `app/i915-sriov-dkms_<uname -r>/`；缺少该目录时仅在用户允许的情况下尝试本机 chroot 编译。
 
-启用旧内核矩阵时，发布工作流仍会构建并打包 `6.6.38-trim_92` artifact；但 `cmd/main` 没有对应的显式映射，默认查找的 `i915-sriov-dkms_6.6.38-trim` 与 artifact 目录名不一致，因此运行时不会自动选择该预构建产物。修改支持矩阵时，要同时检查 `cmd/main`、`manifest` 描述和 `.github/workflows/test_release.yml` 的矩阵、依赖及下载规则。
+启用旧内核矩阵时，发布工作流仍会构建并打包 `6.6.38-trim_92` artifact；但 `cmd/main` 没有对应的显式映射，默认查找的 `i915-sriov-dkms_6.6.38-trim` 与 artifact 目录名不一致，因此运行时不会自动选择该预构建产物。修改支持矩阵时，要同时检查 `cmd/main`、中英文语言资源中的内核描述和 `.github/workflows/test_release.yml` 的矩阵、依赖及下载规则。
+
+## 中英文国际化
+
+`i915-sriov-dkms_driver/i18n/zh` 和 `i18n/en` 必须维护相同的节和键：`[manifest]` 保存显示名、应用描述和更新日志；`[wizard]` 保存安装向导文案；`[runtime]` 保存运行时及本机编译提示。元数据和向导使用 `${section.key}` 引用。中文说明统一使用“社区用户”，命令、路径和内核标识保持原样。
+
+发布工作流将两份语言资源复制到 `app/app/i18n/`，安装后通过 `${TRIM_APPDEST}/app/i18n/` 访问；源码目录下也可直接读取包根目录中的资源。`cmd/i18n.sh` 将语言文件作为数据读取，禁止 `source` 或 `eval` 语言文件。运行时优先读取官方提供的 `TRIM_SYS_LANGUAGE`，缺失时依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`；中文语言变体使用 `zh`，其他语言回退到 `en`。脚本通过 `i915_message <key> [参数...]` 输出文本，动态值使用 `%s`，中英文占位符数量和顺序必须一致。`build_module_chroot` 在宿主和 chroot 内均使用该加载器。第三方工具的原始诊断输出保留原样。
+
+官方参考：[Manifest](https://developer.fnnas.com/docs/core-concepts/manifest/)、[环境变量](https://developer.fnnas.com/docs/core-concepts/environment-variables/)、[用户向导](https://developer.fnnas.com/docs/core-concepts/wizard/)。
 
 ## 修改版本或上游 DKMS 时的注意点
 
-更新上游 DKMS 版本时，通常需要同步修改 `.github/workflows/test_release.yml` 中的 `target_dkms_version`、`target_commit_sha`、必要的单独旧内核覆盖值，以及 `this_pack_manifest_version`；`i915-sriov-dkms_driver/manifest` 应保留版本构建期占位符，只在支持内核描述或文案变化时修改。
+更新上游 DKMS 版本时，通常需要同步修改 `.github/workflows/test_release.yml` 中的 `target_dkms_version`、`target_commit_sha`、必要的单独旧内核覆盖值，以及 `this_pack_manifest_version`。`manifest` 应保留版本构建期占位符和国际化引用，更新说明在 `i18n/zh`、`i18n/en` 中同步修改。
 
-新增内核支持时，应在 `.github/workflows/test_release.yml` 的对应矩阵中增加完整条目，同步更新 `cmd/main` 的 payload 映射、`manifest` 的支持内核说明和 `changelog`，并递增 `this_pack_manifest_version`。`kernel-build.yml` 会按 `${proj_name}-${kernel_name}` 合成 artifact 名称，并按 `${proj_name}_${kernel_name}` 合成包内模块目录；新增条目的 `kernel_name` 必须能生成 `cmd/main` 运行时会查找的目录名，否则应用安装时会找不到已打包的模块产物。
+新增内核支持时，应在 `.github/workflows/test_release.yml` 的对应矩阵中增加完整条目；带 `.c数字` 后缀的版本进入默认矩阵，其他版本进入已放弃支持的旧内核矩阵。同步更新 `cmd/main` 的 payload 映射、中英文语言资源中的内核说明和更新日志，并递增 `this_pack_manifest_version`。`kernel-build.yml` 会按 `${proj_name}-${kernel_name}` 合成 artifact 名称，并按 `${proj_name}_${kernel_name}` 合成包内模块目录；新增条目的 `kernel_name` 必须能生成 `cmd/main` 运行时会查找的目录名，否则应用安装时会找不到已打包的模块产物。
 
 ## 交付与 Commit 文案格式
 

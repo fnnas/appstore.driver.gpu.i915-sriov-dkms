@@ -2,9 +2,25 @@
 
 set -euo pipefail
 
-kernel_ver=${1:?Kernel version is required}
-output_dir=${2:?Output directory is required}
-source_dir="${TRIM_APPDEST:?TRIM_APPDEST is required}/app/i915-sriov-dkms-source"
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+i18n_script="${SCRIPT_DIR}/i18n.sh"
+source "$i18n_script" || exit 1
+
+kernel_ver=${1:-}
+output_dir=${2:-}
+if [[ -z "$kernel_ver" ]]; then
+    i915_message missing_kernel_arg >&2
+    exit 1
+fi
+if [[ -z "$output_dir" ]]; then
+    i915_message missing_output_arg >&2
+    exit 1
+fi
+if [[ -z "${TRIM_APPDEST:-}" ]]; then
+    i915_message missing_appdest >&2
+    exit 1
+fi
+source_dir="${TRIM_APPDEST}/app/i915-sriov-dkms-source"
 work_dir="${TRIM_PKGVAR:-/tmp}/i915-sriov-dkms-chroot.$$"
 root_dir="${work_dir}/root"
 
@@ -31,11 +47,12 @@ mount -t proc proc "${root_dir}/proc"
 rm -f "${root_dir}/etc/resolv.conf"
 cp -L /etc/resolv.conf "${root_dir}/etc/resolv.conf"
 
-echo "Building i915-sriov-dkms for ${kernel_ver} inside chroot..."
-chroot "$root_dir" /bin/bash -s -- "$source_dir" "$kernel_ver" <<'CHROOT_BUILD'
+i915_message building_in_chroot "$kernel_ver"
+chroot "$root_dir" /bin/bash -s -- "$source_dir" "$kernel_ver" "$i18n_script" <<'CHROOT_BUILD'
 set -euo pipefail
 source_dir=$1
 kernel_ver=$2
+source "$3" || exit 1
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -53,9 +70,9 @@ kernel_config="/boot/config-${kernel_ver}"
 if [[ -d "$kernel_build_dir" && ! -f "${kernel_build_dir}/.config" ]]; then
     if [[ -f "$kernel_config" ]]; then
         cp -f "$kernel_config" "${kernel_build_dir}/.config"
-        echo "Staged kernel config from ${kernel_config}"
+        i915_message kernel_config_staged "$kernel_config"
     else
-        echo "Warning: neither ${kernel_build_dir}/.config nor ${kernel_config} exists" >&2
+        i915_message warning "$(i915_message kernel_config_missing "$kernel_build_dir" "$kernel_config")" >&2
     fi
 fi
 
@@ -63,7 +80,7 @@ package_name=$(sed -n 's/^PACKAGE_NAME="\([^"]*\)"/\1/p' "$source_dir/dkms.conf"
 package_version=$(sed -n 's/^PACKAGE_VERSION="\([^"]*\)"/\1/p' "$source_dir/dkms.conf" | head -n 1)
 
 if [[ -z "$package_name" || -z "$package_version" ]]; then
-    echo "Unable to read PACKAGE_NAME or PACKAGE_VERSION from ${source_dir}/dkms.conf" >&2
+    i915_message dkms_metadata_unreadable "$source_dir" >&2
     exit 1
 fi
 
@@ -77,7 +94,7 @@ run_dkms_install_with_live_log() {
     dkms install "$package_name/$package_version" -k "$kernel_ver" --verbose --force &
     dkms_pid=$!
 
-    echo "Streaming DKMS build log: ${make_log}"
+    i915_message stream_dkms_log "$make_log"
     tail -n +1 -F --pid="$dkms_pid" "$make_log" 2>/dev/null &
     tail_pid=$!
 
@@ -93,7 +110,7 @@ run_dkms_install_with_live_log() {
 }
 
 if dkms status -m "$package_name" -v "$package_version" | grep -q .; then
-    echo "Replacing the existing DKMS registration for ${package_name}/${package_version} inside the chroot."
+    i915_message replace_dkms_registration "$package_name" "$package_version"
     dkms remove "$package_name/$package_version" --all
 fi
 
@@ -121,13 +138,13 @@ find_installed_module() {
 }
 
 if [[ ${#module_names[@]} -eq 0 ]]; then
-    echo "No BUILT_MODULE_NAME entries were found in ${source_dir}/dkms.conf" >&2
+    i915_message module_names_missing "$source_dir" >&2
     exit 1
 fi
 
 for module_name in "${module_names[@]}"; do
     if ! module_file=$(find_installed_module "$module_name"); then
-        echo "The DKMS build did not install ${module_name}.ko in ${module_dir}" >&2
+        i915_message built_module_missing "$module_name" "$module_dir" >&2
         exit 1
     fi
     module_files+=("$module_file")
@@ -135,4 +152,4 @@ done
 
 mkdir -p "$output_dir"
 cp -f -- "${module_files[@]}" "$output_dir/"
-echo "Stored the compiled modules in ${output_dir}"
+i915_message modules_stored "$output_dir"

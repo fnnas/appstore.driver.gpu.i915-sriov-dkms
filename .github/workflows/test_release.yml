@@ -11,27 +11,27 @@ on:
   workflow_dispatch:
     inputs:
       make_release:
-        description: '是否创建 GitHub Release？'
+        description: '是否创建 GitHub Release？ / Create a GitHub Release?'
         required: true
         type: boolean
         default: false
       enable_ccache:
-        description: '是否启用 ccache 编译缓存？'
+        description: '是否启用 ccache 编译缓存？ / Enable ccache?'
         required: true
         type: boolean
         default: true
-      build_pre_6_18_18_kernels:
-        description: '是否构建 6.18.18 前版本的内核模块？'
+      build_old_kernels:
+        description: '是否构建已放弃支持的旧内核模块？ / Build unsupported old kernels?'
         required: true
         type: boolean
         default: false
 
 env:
   proj_name: "i915-sriov-dkms"
-  target_dkms_version: "2026.05.06"
-  target_commit_sha: "da4be60f" #2026.05.06
-  linux_firmware_commit_sha: "a3d046ca8eee45ff2d2eda129b495c686dd78040" #i915: Xe3LPD DMC v2.34
-  this_pack_manifest_version: "1.0.23"
+  target_dkms_version: "2026.09.16"
+  target_commit_sha: "e62d3fa3" #2026.09.16
+  linux_firmware_commit_sha: "830ba56b93d3e6cca6ead64924337b409b29b1e4" #i915: Xe3LPD DMC v2.36
+  this_pack_manifest_version: "1.0.24"
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -50,8 +50,9 @@ jobs:
     with:
       proj_name: ${{ needs.setup.outputs.proj_name }}
       linux_firmware_commit_sha: ${{ needs.setup.outputs.linux_firmware_commit_sha }}
-  build_legacy_kernel:
-    if: ${{ inputs.build_pre_6_18_18_kernels }}
+  build_old_kernels:
+    name: Old kernels (unsupported)
+    if: ${{ inputs.build_old_kernels }}
     uses: ./.github/workflows/kernel-build.yml
     secrets: inherit
     needs:
@@ -84,25 +85,6 @@ jobs:
             target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
             target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
             patch_mode: ""
-    with:
-      proj_name: ${{ needs.setup.outputs.proj_name }}
-      target_commit_sha: ${{ matrix.target_commit_sha }}
-      target_dkms_version: ${{ matrix.target_dkms_version }}
-      kernel_name: ${{ matrix.kernel_name }}
-      kernel_ver: ${{ matrix.kernel_ver }}
-      container_image: ${{ matrix.container_image }}
-      patch_mode: ${{ matrix.patch_mode }}
-      enable_ccache: ${{ inputs.enable_ccache }}
-
-  build_kernel:
-    uses: ./.github/workflows/kernel-build.yml
-    secrets: inherit
-    needs:
-      - setup
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
           - kernel_name: "6.18.18-trim-427-amd64"
             kernel_ver: "6.18.18-trim"
             container_image: "makedie/fnos:kernHead-6.18.18-trim-427-amd64"
@@ -127,6 +109,25 @@ jobs:
             target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
             target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
             patch_mode: ""
+    with:
+      proj_name: ${{ needs.setup.outputs.proj_name }}
+      target_commit_sha: ${{ matrix.target_commit_sha }}
+      target_dkms_version: ${{ matrix.target_dkms_version }}
+      kernel_name: ${{ matrix.kernel_name }}
+      kernel_ver: ${{ matrix.kernel_ver }}
+      container_image: ${{ matrix.container_image }}
+      patch_mode: ${{ matrix.patch_mode }}
+      enable_ccache: ${{ inputs.enable_ccache }}
+
+  build_kernel:
+    uses: ./.github/workflows/kernel-build.yml
+    secrets: inherit
+    needs:
+      - setup
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - kernel_name: "6.18.18.c788-trim-amd64"
             kernel_ver: "6.18.18.c788-trim"
             container_image: "makedie/fnos:kernHead-6.18.18.c788-trim-amd64"
@@ -188,7 +189,7 @@ jobs:
   prune_ccache:
     if: ${{ always() && inputs.enable_ccache }}
     needs:
-      - build_legacy_kernel
+      - build_old_kernels
       - build_kernel
     runs-on: ubuntu-latest
     permissions:
@@ -255,10 +256,10 @@ jobs:
           done < "$delete_file"
 
   pack_app_tgz:
-    if: ${{ always() && needs.get_firmware.result == 'success' && needs.build_kernel.result == 'success' && (!inputs.build_pre_6_18_18_kernels || needs.build_legacy_kernel.result == 'success') }}
+    if: ${{ always() && needs.get_firmware.result == 'success' && needs.build_kernel.result == 'success' && (!inputs.build_old_kernels || needs.build_old_kernels.result == 'success') }}
     needs:
       - get_firmware
-      - build_legacy_kernel
+      - build_old_kernels
       - build_kernel
     runs-on: ubuntu-latest
     steps:
@@ -290,24 +291,29 @@ jobs:
             tar -x -C app/app/i915-sriov-dkms-source
           printf '%s\n' "${{ env.target_commit_sha }}" > app/app/i915-sriov-dkms-source/VERSION
 
+      - name: Stage runtime translations
+        run: |
+          mkdir -p app/app/i18n
+          cp i915-sriov-dkms_driver/i18n/zh i915-sriov-dkms_driver/i18n/en app/app/i18n/
+
       - name: Replace manifest build-time values
         run: |
           sed -i \
             -e "s|this_pack_manifest_version|${{ env.this_pack_manifest_version }}|g" \
             i915-sriov-dkms_driver/manifest
 
-      - name: 打包app.tgz
+      - name: Pack app.tgz
         run: |
           cd app/
           tar zcvf app.tgz app ui
           mv app.tgz ../i915-sriov-dkms_driver/
-      - name: 打包package
+      - name: Pack application
         run: |
           tar zcvf appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz i915-sriov-dkms_driver
-      - name: 修改包扩展名
+      - name: Rename package extension
         run: |
           mv appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz.fpk
-      - name: 上传应用包
+      - name: Upload application package
         uses: actions/upload-artifact@v6
         with:
           name: appstore.driver.gpu.i915-sriov-dkms-${{ env.this_pack_manifest_version }}-${{ env.target_commit_sha }}.tgz.fpk
@@ -318,13 +324,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           {
-            echo "## 构建选项"
+            echo "## 构建选项 / Build options"
             echo
             echo "- make_release: ${{ inputs.make_release }}"
             echo "- enable_ccache: ${{ inputs.enable_ccache }}"
-            echo "- build_pre_6_18_18_kernels: ${{ inputs.build_pre_6_18_18_kernels }}"
+            echo "- build_old_kernels (旧内核，已放弃支持 / unsupported old kernels): ${{ inputs.build_old_kernels }}"
             echo
-            echo "## 最新提交"
+            echo "## 最新提交 / Latest commit"
             echo
             git log -1 --pretty=%B
           } > release_notes.md

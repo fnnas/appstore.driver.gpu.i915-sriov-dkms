@@ -1,5 +1,6 @@
 #!/bin/bash
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+source "${SCRIPT_DIR}/i18n.sh" || exit 1
 PACKAGE_BASE=${TRIM_APPDEST:-}
 MODULE_ROOT=${MODULE_ROOT:-/lib/modules}
 CHROOT_BUILD_SCRIPT=${CHROOT_BUILD_SCRIPT:-${SCRIPT_DIR}/build_module_chroot}
@@ -8,7 +9,7 @@ CHROOT_BUILD_LOCK=${CHROOT_BUILD_LOCK:-/tmp/i915-sriov-dkms-chroot-build.lock}
 print_pci() {
 	gpu_addrs=$(lspci -Dn | awk '$2 ~ /^03/ {print $1}')
 	if [[ -z "$gpu_addrs" ]]; then
-		echo "not found gpu"
+		i915_message no_gpu
 	fi
 	for addr in $gpu_addrs; do
 		echo
@@ -18,9 +19,10 @@ print_pci() {
 }
 
 fail() {
-	local message="$*"
+	local message
+	message=$(i915_message "$@")
 
-	echo "error: ${message}" >&2
+	i915_message error "${message}" >&2
 	if [[ -n "${TRIM_TEMP_LOGFILE:-}" ]]; then
 		printf '%s\t%s\n' "$(date +'%Y/%m/%d %H:%M:%S')" "${message}" >> "${TRIM_TEMP_LOGFILE}" 2>/dev/null || true
 	fi
@@ -48,7 +50,7 @@ run_with_user_visible_log() {
 
 require_kernel_build_num() {
 	if [[ ! "${nowKernelBuildNum}" =~ ^[0-9]+$ ]]; then
-		fail "Unable to detect the current kernel build number: $(uname -v). Please include this log when reporting the issue."
+		fail unable_detect_build "$(uname -v)"
 	fi
 }
 
@@ -68,15 +70,15 @@ copy_kernel_module() {
 	local dst_dir="$2"
 
 	if [[ ! -d "${src_dir}" ]]; then
-		fail "Missing driver module package for the current kernel: ${src_dir}. Please verify that the installation package is complete, or download it again and reinstall."
+		fail missing_payload "${src_dir}"
 	fi
 
 	if ! module_payload_exists "${src_dir}"; then
-		fail "No prebuilt kernel modules were found for the current kernel in: ${src_dir}."
+		fail missing_modules "${src_dir}"
 	fi
 
-	mkdir -p "${dst_dir}" || fail "Failed to create the kernel module directory: ${dst_dir}."
-	cp -rf "${src_dir}/." "${dst_dir}/" || fail "Failed to copy kernel modules: ${src_dir} -> ${dst_dir}."
+	mkdir -p "${dst_dir}" || fail create_module_dir_failed "${dst_dir}"
+	cp -rf "${src_dir}/." "${dst_dir}/" || fail copy_modules_failed "${src_dir}" "${dst_dir}"
 }
 
 local_build_allowed() {
@@ -87,7 +89,7 @@ acquire_local_build_lock() {
 	local kernel_ver="$1"
 
 	if [[ -e "${CHROOT_BUILD_LOCK}" || -L "${CHROOT_BUILD_LOCK}" ]]; then
-		fail "A local chroot build is already running, or a previous build failed or was interrupted. Automatic retry is disabled. Reboot the system or remove ${CHROOT_BUILD_LOCK} manually before trying again."
+		fail build_lock_exists "${CHROOT_BUILD_LOCK}"
 	fi
 
 	if ! (
@@ -95,13 +97,13 @@ acquire_local_build_lock() {
 		printf 'kernel=%s\nstarted_at=%s\npid=%s\n' \
 			"${kernel_ver}" "$(date +'%Y/%m/%d %H:%M:%S')" "$$" > "${CHROOT_BUILD_LOCK}"
 	) 2>/dev/null; then
-		fail "Unable to create the local chroot build lock: ${CHROOT_BUILD_LOCK}. Another build may already be running."
+		fail build_lock_create_failed "${CHROOT_BUILD_LOCK}"
 	fi
 }
 
 release_local_build_lock() {
 	if ! rm -f -- "${CHROOT_BUILD_LOCK}"; then
-		echo "warning: Failed to remove the local chroot build lock: ${CHROOT_BUILD_LOCK}" >&2
+		i915_message warning "$(i915_message build_lock_remove_failed "${CHROOT_BUILD_LOCK}")" >&2
 	fi
 }
 
@@ -112,7 +114,7 @@ select_kernel_module_payload() {
 	6.12.5-trim)
 		require_kernel_build_num
 		if [[ ${nowKernelBuildNum} -le 9 ]]; then
-			fail "The current kernel ${nowKernelVer} build #${nowKernelBuildNum} is not supported. Please upgrade to 6.12.5-trim build #10 or newer before installing."
+			fail unsupported_kernel_build "${nowKernelVer}" "${nowKernelBuildNum}"
 		fi
 		MODULE_PAYLOAD_DIR="i915-sriov-dkms_6.12.5-trim_10"
 		;;
@@ -171,21 +173,21 @@ build_kernel_module_payload() {
 	local output_dir="${PACKAGE_BASE}/app/${payload_dir}"
 
 	if [[ ! -f "${source_dir}/dkms.conf" ]]; then
-		fail "The packaged i915-sriov-dkms source code is missing; the chroot fallback build cannot start."
+		fail missing_source
 	fi
 
 	if [[ ! -f "${CHROOT_BUILD_SCRIPT}" ]]; then
-		fail "The chroot build script is missing: ${CHROOT_BUILD_SCRIPT}."
+		fail missing_build_script "${CHROOT_BUILD_SCRIPT}"
 	fi
 
 	acquire_local_build_lock "${kernel_ver}"
-	echo "No prebuilt i915-sriov-dkms modules were found for ${kernel_ver}; starting the requested chroot fallback build."
+	i915_message start_fallback_build "${kernel_ver}"
 	if ! run_with_user_visible_log bash "${CHROOT_BUILD_SCRIPT}" "${kernel_ver}" "${output_dir}"; then
-		fail "Failed to build i915-sriov-dkms modules for kernel ${kernel_ver} in chroot."
+		fail chroot_build_failed "${kernel_ver}"
 	fi
 
 	if ! module_payload_exists "${output_dir}"; then
-		fail "The chroot build completed without producing kernel modules for ${kernel_ver}."
+		fail chroot_no_modules "${kernel_ver}"
 	fi
 
 	release_local_build_lock
@@ -202,10 +204,10 @@ case $1 in
 start)
 	reset_user_visible_log
 	echo "$(uname -a)"
-	echo "kernel_inf ${nowKernelVer} ${nowKernelBuildNum}"
+	i915_message kernel_info "${nowKernelVer}" "${nowKernelBuildNum}"
 
 	if [[ -z "${PACKAGE_BASE}" ]]; then
-		fail "Missing environment variable TRIM_APPDEST. Unable to locate the application installation directory."
+		fail missing_appdest
 	fi
 
 	select_kernel_module_payload "${nowKernelVer}"
@@ -215,7 +217,7 @@ start)
 	kernel_named_payload_path="${PACKAGE_BASE}/app/${kernel_named_payload_dir}"
 
 	if ! module_payload_exists "${payload_path}" && module_payload_exists "${kernel_named_payload_path}"; then
-		echo "Using the existing kernel-named module payload: ${kernel_named_payload_path}"
+		i915_message using_existing_payload "${kernel_named_payload_path}"
 		payload_dir="${kernel_named_payload_dir}"
 		payload_path="${kernel_named_payload_path}"
 	fi
@@ -229,21 +231,21 @@ start)
 	copy_kernel_module "${payload_path}" "${MODULE_ROOT}/${nowKernelVer}/updates/dkms/i915-sriov-dkms"
 
 	if ! compgen -G "${PACKAGE_BASE}/app/firmware/*" >/dev/null; then
-		fail "Missing i915 firmware files: ${PACKAGE_BASE}/app/firmware. Please verify that the installation package is complete, or download it again and reinstall."
+		fail missing_firmware "${PACKAGE_BASE}/app/firmware"
 	fi
-	mkdir -p /usr/lib/firmware/i915 || fail "Failed to create the firmware directory: /usr/lib/firmware/i915."
-	cp -nv "${PACKAGE_BASE}"/app/firmware/* /usr/lib/firmware/i915/ || fail "Failed to copy i915 firmware files."
-	echo "firmware list"
+	mkdir -p /usr/lib/firmware/i915 || fail create_firmware_dir_failed /usr/lib/firmware/i915
+	cp -nv "${PACKAGE_BASE}"/app/firmware/* /usr/lib/firmware/i915/ || fail copy_firmware_failed
+	i915_message firmware_list
 	ls -al /usr/lib/firmware/i915/
 	md5sum /usr/lib/firmware/i915/*
 
-	echo "depmod："
-	depmod || fail "depmod failed. Kernel module dependencies were not updated."
+	echo "depmod:"
+	depmod || fail depmod_failed
 	if grub-mkconfig -o /dev/null;then
 		echo "update-initramfs -u"
-		update-initramfs -u || fail "update-initramfs failed. The initramfs was not updated."
+		update-initramfs -u || fail initramfs_failed
 	else
-		fail "grub configuration validation failed. update-initramfs was not run. Please check the grub configuration and try again."
+		fail grub_validation_failed
 	fi
 
 	for mod in i915 kvmgt; do
@@ -251,14 +253,14 @@ start)
 	  modprobe -D "$mod"
 	done
 
-	echo "try remove driver"
+	i915_message remove_driver
 	if modprobe -r -v i915;then
-	  echo "try load driver"
+	  i915_message load_driver
 		modprobe -v i915
-		systemctl restart mediasrv.service resmon_service.service || echo "systemctl restart failed"
+		systemctl restart mediasrv.service resmon_service.service || i915_message restart_services_failed
 	fi
 
-	echo "find i915 file"
+	i915_message find_driver_files
 	find /lib/modules/ -name "*915*"
 	echo "/proc/cmdline"
 	cat /proc/cmdline
@@ -278,6 +280,6 @@ status)
 	fi
 	;;
 *)
-	fail "Unknown command: $1"
+	fail unknown_command "$1"
 	;;
 esac
