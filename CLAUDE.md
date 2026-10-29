@@ -73,7 +73,7 @@ gh workflow run test_release.yml -f make_release=true
 `get_firmware.yml` 按 `linux_firmware_commit_sha` 缓存最终的 `linux-firmware/i915/` 目录。命中缓存时直接上传 firmware artifact；未命中时使用 partial clone 和 sparse checkout，仅检出 `i915/` 后写入新缓存，避免下载无关固件内容。`test_release.yml` 等待 firmware、默认内核矩阵和按需启用的旧内核矩阵完成后，单独下载 firmware 到 `app/app/firmware`，再用 `${proj_name}-6*` pattern 和 `merge-multiple: true` 将所有内核 artifact 合并下载到 `app/app/`，然后执行：
 
 1. 从 `target_commit_sha` 导出上游 DKMS 源码到 `app/app/i915-sriov-dkms-source/`，供安装向导选择本机 chroot 编译时使用。
-2. 用 `sed` 替换 `i915-sriov-dkms_driver/manifest` 中的 `this_pack_manifest_version` 占位符。`manifest` 不展示单个 `target_commit_sha`，因为一次打包会包含多个来源提交。
+2. 用 `sed` 替换 `i915-sriov-dkms_driver/manifest` 中的 `this_pack_manifest_version` 占位符，以及 `i18n/zh`、`i18n/en` 应用说明中的 `target_dkms_version` 占位符，然后将替换后的语言资源复制到 `app/app/i18n/`。DKMS 版本统一取自工作流 `env`；`manifest` 保留国际化引用，不展示单个 `target_commit_sha`，因为一次打包会包含多个来源提交。
 3. 在 `app/` 下生成内部 `app.tgz`，内容为运行时的 `app/` 和 `ui/`。
 4. 把 `app.tgz` 移到 `i915-sriov-dkms_driver/`。
 5. 将整个 `i915-sriov-dkms_driver/` 打成最终 `.tgz.fpk` 应用商店包。

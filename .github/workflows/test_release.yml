@@ -29,9 +29,9 @@ on:
 env:
   proj_name: "i915-sriov-dkms"
   target_dkms_version: "2026.09.16"
-  target_commit_sha: "e62d3fa3" #2026.09.16
+  target_commit_sha: "4fdc4434" #2026.09.16
   linux_firmware_commit_sha: "830ba56b93d3e6cca6ead64924337b409b29b1e4" #i915: Xe3LPD DMC v2.36
-  this_pack_manifest_version: "1.0.24"
+  this_pack_manifest_version: "1.0.25"
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -291,16 +291,19 @@ jobs:
             tar -x -C app/app/i915-sriov-dkms-source
           printf '%s\n' "${{ env.target_commit_sha }}" > app/app/i915-sriov-dkms-source/VERSION
 
+      - name: Replace manifest and translation build-time values
+        run: |
+          sed -i \
+            -e "s|this_pack_manifest_version|${{ env.this_pack_manifest_version }}|g" \
+            -e "s|target_dkms_version|${{ env.target_dkms_version }}|g" \
+            i915-sriov-dkms_driver/manifest \
+            i915-sriov-dkms_driver/i18n/zh \
+            i915-sriov-dkms_driver/i18n/en
+
       - name: Stage runtime translations
         run: |
           mkdir -p app/app/i18n
           cp i915-sriov-dkms_driver/i18n/zh i915-sriov-dkms_driver/i18n/en app/app/i18n/
-
-      - name: Replace manifest build-time values
-        run: |
-          sed -i \
-            -e "s|this_pack_manifest_version|${{ env.this_pack_manifest_version }}|g" \
-            i915-sriov-dkms_driver/manifest
 
       - name: Pack app.tgz
         run: |

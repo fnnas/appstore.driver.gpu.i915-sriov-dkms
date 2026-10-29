@@ -32,6 +32,8 @@ The firmware workflow caches only the exported `linux-firmware/i915` directory. 
 
 Keep `manifest` version as the literal build-time placeholder `this_pack_manifest_version`. Keep `arch="x86_64"` and `platform="x86"`. Command scripts must retain LF line endings.
 
+Keep the literal `target_dkms_version` placeholder in both localized manifest descriptions. The release workflow replaces it from `env.target_dkms_version` before copying the catalogs to `app/app/i18n/`.
+
 Do not remove the packaged source staging or wizard/local-build path without updating `cmd/main`, `build_module_chroot`, the wizard, and manifest copy together.
 
 ## Localization
