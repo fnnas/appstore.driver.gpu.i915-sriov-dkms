@@ -8,7 +8,7 @@ This repository packages `appstore.driver.gpu.i915-sriov-dkms` for the fnOS app 
 
 - `.github/workflows/test_release.yml`: release orchestration, package/upstream versions, kernel matrix, artifact assembly, and optional GitHub Release.
 - `.github/workflows/kernel-build.yml`: reusable DKMS build workflow. Artifact names and payload directories are derived from `kernel_name`.
-- `.github/workflows/get_firmware.yml`: fetches and uploads the pinned `linux-firmware/i915` tree.
+- `.github/workflows/get_firmware.yml`: restores or fetches the pinned `linux-firmware/i915` tree and uploads it as an artifact.
 - `i915-sriov-dkms_driver/cmd/main`: runtime kernel detection, payload selection, module/firmware installation, and diagnostics.
 - `i915-sriov-dkms_driver/cmd/build_module_chroot`: optional on-device fallback build.
 - `i915-sriov-dkms_driver/cmd/i18n.sh`: shared runtime message loader, including inside the chroot.
@@ -27,6 +27,8 @@ When adding kernel support:
 5. Increment `this_pack_manifest_version` in `test_release.yml`.
 
 When updating upstream DKMS or firmware, keep the related version and commit pins together in the `env` block. Preserve old-kernel matrix-specific overrides.
+
+The firmware workflow caches only the exported `linux-firmware/i915` directory. Keep the cache key scoped by `linux_firmware_commit_sha`; a new upstream commit must create a new cache entry. On a cache miss, retain the partial clone and sparse checkout so the workflow does not download unrelated firmware blobs.
 
 Keep `manifest` version as the literal build-time placeholder `this_pack_manifest_version`. Keep `arch="x86_64"` and `platform="x86"`. Command scripts must retain LF line endings.
 

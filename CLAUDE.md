@@ -70,7 +70,7 @@ gh workflow run test_release.yml -f make_release=true
 
 `kernel-build.yml` 在 `makedie/fnos:kernHead-...` 容器中克隆 DKMS 源码、检出矩阵传入的提交、按需应用旧内核 patch、执行 DKMS 构建，然后把 `/lib/modules/<kernel>/updates/dkms/*` 复制成 artifact。`test_release.yml` 的 `workflow_dispatch` 提供中文布尔输入 `enable_ccache`，默认开启；关闭时会跳过 ccache 的恢复、安装、统计和保存步骤。开启时，每个内核矩阵项会使用独立的 ccache 目录，并显式执行 restore/save：恢复时按 `kernel_name` 维度尽量复用最近缓存，保存时用当前 workflow run 的唯一 key 回写新缓存。编译器 wrapper 会按 PATH 自动发现 `gcc`、`g++`、`cc`、`c++` 以及任意 triplet 前缀的 `*-gcc` / `*-g++`，不写死 `x86_64-linux-gnu-*`。artifact 名称由 `${proj_name}-${kernel_name}` 合成，artifact 内部目录由 `${proj_name}_${kernel_name}` 合成；这些命名规则必须和 `cmd/main` 的运行时路径保持一致。
 
-`get_firmware.yml` 克隆 linux-firmware 并上传 `i915/` 目录。`test_release.yml` 等待 firmware、默认内核矩阵和按需启用的旧内核矩阵完成后，单独下载 firmware 到 `app/app/firmware`，再用 `${proj_name}-6*` pattern 和 `merge-multiple: true` 将所有内核 artifact 合并下载到 `app/app/`，然后执行：
+`get_firmware.yml` 按 `linux_firmware_commit_sha` 缓存最终的 `linux-firmware/i915/` 目录。命中缓存时直接上传 firmware artifact；未命中时使用 partial clone 和 sparse checkout，仅检出 `i915/` 后写入新缓存，避免下载无关固件内容。`test_release.yml` 等待 firmware、默认内核矩阵和按需启用的旧内核矩阵完成后，单独下载 firmware 到 `app/app/firmware`，再用 `${proj_name}-6*` pattern 和 `merge-multiple: true` 将所有内核 artifact 合并下载到 `app/app/`，然后执行：
 
 1. 从 `target_commit_sha` 导出上游 DKMS 源码到 `app/app/i915-sriov-dkms-source/`，供安装向导选择本机 chroot 编译时使用。
 2. 用 `sed` 替换 `i915-sriov-dkms_driver/manifest` 中的 `this_pack_manifest_version` 占位符。`manifest` 不展示单个 `target_commit_sha`，因为一次打包会包含多个来源提交。

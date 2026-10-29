@@ -101,7 +101,12 @@ jobs:
           sed "s/max_vfs, 0/max_vfs, 7/g" -i i915-sriov-dkms/drivers/gpu/drm/i915/i915_params.h
       - name: build ko
         id: build_ko
+        shell: bash
+        env:
+          DKMS_VERSION: ${{ inputs.target_dkms_version }}
         run: |
+          set -euo pipefail
+
           if command -v ccache >/dev/null 2>&1; then
             echo "compiler resolution before build:"
             for compiler in cc gcc g++ c++ x86_64-linux-gnu-gcc x86_64-linux-gnu-g++; do
@@ -111,11 +116,19 @@ jobs:
             done
           fi
           dkms add ./i915-sriov-dkms
-          dkms install i915-sriov-dkms/${{ inputs.target_dkms_version }} --verbose
-      - name: cat build log
-        if: ${{ failure() && steps.build_ko.outcome == 'failure' }}
-        run: |
-          cat /var/lib/dkms/i915-sriov-dkms/*/build/make.log || true
+          dkms install "i915-sriov-dkms/$DKMS_VERSION" --verbose &
+          build_pid=$!
+
+          # Keep following the open log even when DKMS moves it after a successful build.
+          tail --pid="$build_pid" --sleep-interval=0.1 --retry --follow=descriptor \
+            -n +1 "/var/lib/dkms/i915-sriov-dkms/$DKMS_VERSION/build/make.log" &
+          log_pid=$!
+          trap 'kill "$log_pid" "$build_pid" 2>/dev/null || true' EXIT
+
+          build_status=0
+          wait "$build_pid" || build_status=$?
+          wait "$log_pid" || true
+          exit "$build_status"
       - name: Show ccache stats
         if: ${{ always() && inputs.enable_ccache }}
         run: |

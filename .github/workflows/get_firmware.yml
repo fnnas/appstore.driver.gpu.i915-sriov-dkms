@@ -18,10 +18,31 @@ jobs:
   get_firmware:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository code
+      - name: Restore i915 firmware cache
+        id: cache_firmware
+        uses: actions/cache@v5
+        with:
+          path: linux-firmware/i915
+          key: linux-firmware-i915-v1-${{ runner.os }}-${{ inputs.linux_firmware_commit_sha }}
+      - name: Fetch i915 firmware
+        if: ${{ steps.cache_firmware.outputs.cache-hit != 'true' }}
+        shell: bash
+        env:
+          LINUX_FIRMWARE_COMMIT: ${{ inputs.linux_firmware_commit_sha }}
         run: |
-          git clone https://gitlab.com/kernel-firmware/linux-firmware
-          cd linux-firmware && git reset --hard ${{ inputs.linux_firmware_commit_sha }}
+          set -euo pipefail
+
+          source_checkout="$(mktemp -d)"
+          trap 'rm -rf -- "$source_checkout"' EXIT
+
+          git clone --quiet --filter=blob:none --no-checkout --single-branch \
+            https://gitlab.com/kernel-firmware/linux-firmware.git "$source_checkout"
+          git -C "$source_checkout" sparse-checkout init --cone
+          git -C "$source_checkout" sparse-checkout set i915
+          git -C "$source_checkout" checkout --detach "$LINUX_FIRMWARE_COMMIT"
+
+          mkdir -p linux-firmware
+          mv "$source_checkout/i915" linux-firmware/i915
       - name: ls -la
         run: |
           ls -la linux-firmware/i915/
