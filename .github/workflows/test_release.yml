@@ -31,7 +31,7 @@ env:
   target_dkms_version: "2026.09.16"
   target_commit_sha: "4fdc4434" #2026.09.16
   linux_firmware_commit_sha: "830ba56b93d3e6cca6ead64924337b409b29b1e4" #i915: Xe3LPD DMC v2.36
-  this_pack_manifest_version: "1.0.25"
+  this_pack_manifest_version: "1.0.26"
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -173,6 +173,12 @@ jobs:
           - kernel_name: "6.18.18.c1168-trim-amd64"
             kernel_ver: "6.18.18.c1168-trim"
             container_image: "makedie/fnos:kernHead-6.18.18.c1168-trim-amd64"
+            target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
+            target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
+            patch_mode: ""
+          - kernel_name: "6.18.18.c1179-trim-amd64"
+            kernel_ver: "6.18.18.c1179-trim"
+            container_image: "makedie/fnos:kernHead-6.18.18.c1179-trim-amd64"
             target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
             target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
             patch_mode: ""
