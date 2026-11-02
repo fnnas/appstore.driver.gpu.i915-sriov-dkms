@@ -29,12 +29,12 @@ on:
 env:
   proj_name: "i915-sriov-dkms"
   target_dkms_version: "2026.09.16"
-  target_commit_sha: "4fdc4434" #2026.09.16
+  target_commit_sha: "94bfda65" #2026.09.16
   linux_firmware_commit_sha: "830ba56b93d3e6cca6ead64924337b409b29b1e4" #i915: Xe3LPD DMC v2.36
-  this_pack_manifest_version: "1.0.26"
+  this_pack_manifest_version: "1.0.27"
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       proj_name: ${{ env.proj_name }}
       target_commit_sha: ${{ env.target_commit_sha }}
@@ -182,6 +182,12 @@ jobs:
             target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
             target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
             patch_mode: ""
+          - kernel_name: "6.18.18.c1186-trim-amd64"
+            kernel_ver: "6.18.18.c1186-trim"
+            container_image: "makedie/fnos:kernHead-6.18.18.c1186-trim-amd64"
+            target_commit_sha: ${{ needs.setup.outputs.target_commit_sha }}
+            target_dkms_version: ${{ needs.setup.outputs.target_dkms_version }}
+            patch_mode: ""
     with:
       proj_name: ${{ needs.setup.outputs.proj_name }}
       target_commit_sha: ${{ matrix.target_commit_sha }}
@@ -197,7 +203,7 @@ jobs:
     needs:
       - build_old_kernels
       - build_kernel
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: write
     steps:
@@ -267,7 +273,7 @@ jobs:
       - get_firmware
       - build_old_kernels
       - build_kernel
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository code
         uses: actions/checkout@v6

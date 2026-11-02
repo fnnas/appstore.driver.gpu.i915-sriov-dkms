@@ -16,7 +16,7 @@ on:
         default: "HEAD"
 jobs:
   get_firmware:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Restore i915 firmware cache
         id: cache_firmware
