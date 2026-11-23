@@ -29,9 +29,9 @@ on:
 env:
   proj_name: "i915-sriov-dkms"
   target_dkms_version: "2026.09.16"
-  target_commit_sha: "94bfda65" #2026.09.16
+  target_commit_sha: "30120666" #2026.09.16
   linux_firmware_commit_sha: "830ba56b93d3e6cca6ead64924337b409b29b1e4" #i915: Xe3LPD DMC v2.36
-  this_pack_manifest_version: "1.0.27"
+  this_pack_manifest_version: "1.0.28"
 jobs:
   setup:
     runs-on: ubuntu-24.04
